@@ -13,7 +13,7 @@ import (
 	"github.com/larntz/status/datastructures"
 )
 
-func getChecks() {
+func getChecks() datastructures.Checks {
 	// read checks.csv and get requested checks
 	file, err := os.Open("checks.csv")
 	if err != nil {
@@ -24,7 +24,6 @@ func getChecks() {
 	var checks datastructures.Checks
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Println(line)
 		columns := strings.Split(line, ",")
 		interval, err := strconv.Atoi(columns[2])
 		if err != nil {
@@ -40,39 +39,15 @@ func getChecks() {
 	if err := scanner.Err(); err != nil {
 		fmt.Println(err)
 	}
-
+	return checks
 }
 
 // StartController runs the controller
 func StartController() {
-	var checks datastructures.Checks
-	checks.StatusChecks = append(checks.StatusChecks, datastructures.StatusCheck{
-		ID:       "check1",
-		URL:      "https://blue42.net/404",
-		Interval: 60,
-		Regions:  []string{"SOFLO"},
-	})
-	checks.StatusChecks = append(checks.StatusChecks, datastructures.StatusCheck{
-		ID:       "check2",
-		URL:      "http://lek.net",
-		Interval: 60,
-		Regions:  []string{"SOFLO"},
-	})
-	checks.StatusChecks = append(checks.StatusChecks, datastructures.StatusCheck{
-		ID:       "check3",
-		URL:      "http://slashdot.org",
-		Interval: 60,
-		Regions:  []string{"SOFLO"},
-	})
-
-	checks.SSLChecks = append(checks.SSLChecks, datastructures.SSLCheck{
-		ID:       "check1",
-		URL:      "https://blue42.net",
-		Interval: 60,
-	})
 
 	// handle route using handler function
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		checks := getChecks()
 		response, err := json.Marshal(checks)
 		if err != nil {
 			fmt.Println("error marshalling check")

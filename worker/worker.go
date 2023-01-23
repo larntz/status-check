@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/larntz/status/datastructures"
@@ -42,24 +43,31 @@ func getChecks() datastructures.Checks {
 
 }
 
+func check(wg *sync.WaitGroup, url string) {
+	defer wg.Done()
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Printf("http.Get error: %s\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	time := time.Now().UTC()
+	fmt.Printf("CHECK: %s,%d,%s\n", url, resp.StatusCode, time)
+}
+
 // StartWoker starts the worker process
 func StartWoker() {
 	checks := getChecks()
 	for {
+		fmt.Println("INFO: Starting checks")
+		wg := new(sync.WaitGroup)
 		for _, statusCheck := range checks.StatusChecks {
-			resp, err := http.Get(statusCheck.URL)
-			if err != nil {
-				fmt.Printf("http.Get error: %s\n", err)
-				os.Exit(1)
-			}
-			defer resp.Body.Close()
-
-			fmt.Println("Checking ", statusCheck.URL)
-			fmt.Println("CheckTime:", time.Now())
-			fmt.Println("StatusCode:", resp.StatusCode)
-			// not an ssl check
-			// fmt.Printf("CertificateExpriation: %s\n\n", resp.TLS.PeerCertificates[0].NotAfter)
+			wg.Add(1)
+			go check(wg, statusCheck.URL)
 		}
+		wg.Wait()
+		fmt.Printf("INFO: Completed checks\n\n")
 		time.Sleep(time.Second * 20)
 		checks = getChecks()
 	}

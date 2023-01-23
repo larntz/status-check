@@ -1,5 +1,6 @@
-check1,"https://blue42.net/404",60,SOFLO:OHIO
-check2,"https://blue42.net/",60,SOFLO:OHIO
-check3,"http://lek.net/",60,SOFLO:OHIO
-check4,"https://google.com",60,SOFLO
-check5,"https://slashdot.org",60,SOFLO
+check1,https://blue42.net/404,60,SOFLO:OHIO
+check2,https://blue42.net/,60,SOFLO:OHIO
+check3,http://lek.net/,60,SOFLO:OHIO
+check4,https://google.com,60,SOFLO
+check5,https://slashdot.org,60,SOFLO
+check6,http://gitea.chacarntz.net,60,SOFLO
