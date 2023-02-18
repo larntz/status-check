@@ -1,5 +1,5 @@
-// Package datastructures defines our structs
-package datastructures
+// Package checks defines our checks structs
+package checks
 
 import "time"
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/larntz/status/datastructures"
+	"github.com/larntz/status/internal/checks"
 )
 
 // TODO spawn go routines for each allowed interval 60,120,300,600,900
@@ -22,9 +22,9 @@ import (
 // TODO get ttfb or some kind of request timing
 // https://stackoverflow.com/questions/48077098/getting-ttfb-time-to-first-byte-value-in-golang/48077762#48077762
 
-func getChecks() datastructures.Checks {
+func getChecks() checks.Checks {
 	// get checks
-	var checks datastructures.Checks
+	var checks checks.Checks
 	// contoller url sould be configurable via env
 	resp, err := http.Get("http://localhost:4242")
 	if err != nil {
@@ -56,8 +56,8 @@ func check(wg *sync.WaitGroup, url string) {
 	fmt.Printf("CHECK: %s,%d,%s\n", url, resp.StatusCode, time)
 }
 
-// StartWoker starts the worker process
-func StartWoker() {
+// StartWorker starts the worker process
+func StartWorker() {
 	checks := getChecks()
 	for {
 		fmt.Println("INFO: Starting checks")
