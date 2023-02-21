@@ -17,6 +17,5 @@ type State struct {
 	ChecksTimestamp time.Time
 	Ctx             context.Context
 	DbClient        *mongo.Client // is this abstracted enough?
-	DBClientMutex   sync.Mutex
 	Region          string
 }

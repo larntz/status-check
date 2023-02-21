@@ -22,9 +22,6 @@ func Connect(ctx context.Context, app *application.State) error {
 		log.Fatal("DB_CONNECTION_STRING must be set. Exiting.")
 	}
 
-	app.DBClientMutex.Lock()
-	defer app.DBClientMutex.Unlock()
-
 	var err error
 	app.DbClient, err = mongo.NewClient(options.Client().ApplyURI(connString))
 	if err != nil {
