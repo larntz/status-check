@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/larntz/status/internal/checks"
-	"go.mongodb.org/mongo-driver/bson"
+	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // CreateDevChecks will create a few checks we can use during development
@@ -26,33 +24,24 @@ func CreateDevChecks(client *mongo.Client, filename string) {
 	reader := csv.NewReader(file)
 	domains, _ := reader.ReadAll()
 
-	statusChecks := checks.Checks{}
+	var statusChecks []interface{}
 
 	for i, domain := range domains {
-		statusChecks.StatusChecks = append(statusChecks.StatusChecks, checks.StatusCheck{
-			ID:       fmt.Sprintf("devCheckList%d", i),
-			URL:      "https://" + domain[1],
-			Interval: 10,
-			Regions:  []string{"us-dev-1"},
+		statusChecks = append(statusChecks, checks.StatusCheck{
+			ID:       fmt.Sprintf("dev-check-%d", i),
+			URL:      domain[1],
+			Interval: 300,
+			Regions:  []string{"us-dev-1", "us-dev-2"},
 		})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	opts := options.FindOneAndReplace().SetUpsert(true)
-	for _, check := range statusChecks.StatusChecks {
-		filter := bson.D{{Key: "id", Value: check.ID}}
-		var result bson.M
-		err := statusChecksColl.FindOneAndReplace(ctx, filter, check, opts).Decode(&result)
-		if err != nil {
-			// ErrNoDocuments means that the filter did not match any documents in
-			// the collection.
-			if err == mongo.ErrNoDocuments {
-				log.Printf("%s check not found", check.ID)
-			} else {
-				log.Fatalf("UpdateOne() failed: %s\nCheck: %+v", err, check)
-			}
-		}
-		log.Printf("FindOneAndReplace: %s", result)
+	// TODO add step to delete all docments with region us-dev-1 or us-dev-2
+	log.Info("Starting InsertMany")
+	result, err := statusChecksColl.InsertMany(ctx, statusChecks)
+	if err != nil {
+		log.Fatalf("Failed to InsertMany: %s", err)
 	}
+	log.Infof("Inserted %d checks", len(result.InsertedIDs))
 }

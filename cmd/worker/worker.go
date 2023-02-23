@@ -11,7 +11,6 @@ import (
 	"github.com/larntz/status/internal/checks"
 	"github.com/larntz/status/internal/data"
 	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // TODO spawn go routines for each allowed interval 60,120,300,600,900
@@ -23,7 +22,7 @@ import (
 // TODO get ttfb or some kind of request timing
 // https://stackoverflow.com/questions/48077098/getting-ttfb-time-to-first-byte-value-in-golang/48077762#48077762
 
-func check(wg *sync.WaitGroup, dbClient *mongo.Client, checkID string, runID int64, region string, url string) {
+func check(wg *sync.WaitGroup, app *application.State, checkID string, runID int64, region string, url string, out chan checks.StatusCheckResult) {
 	defer wg.Done()
 	metadata := checks.StatusCheckMetadata{
 		Region:  region,
@@ -36,14 +35,17 @@ func check(wg *sync.WaitGroup, dbClient *mongo.Client, checkID string, runID int
 		Metadata:  metadata,
 	}
 
+	// This will time out the http client stuff. The entire run should take close to this amount of time, any
+	// check not finished by the Timeout will be canceled.
 	client := http.Client{
-		Timeout: 20 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	resp, err := client.Get(url)
 	if err != nil {
 		//log.Errorf("Check result runID: %d, error: %s", runID, err)
 		result.ResponseInfo = err.Error()
-		sendCheckResult(dbClient, &result)
+		out <- result
+		//go sendCheckResult(app, &result)
 		log.Errorf("%+v", result)
 		return
 	}
@@ -51,20 +53,47 @@ func check(wg *sync.WaitGroup, dbClient *mongo.Client, checkID string, runID int
 
 	result.ResponseCode = resp.StatusCode
 	result.ResponseInfo = resp.Status
+
 	result.ResponseTime = 5
-	sendCheckResult(dbClient, &result)
+	out <- result
+	//go sendCheckResult(app, &result)
 
 	//log.Infof("Check result runID: %d, url: %s, status_code: %d", runID, url, resp.StatusCode)
 	log.Infof("%+v", result)
 }
 
-func sendCheckResult(dbClient *mongo.Client, result *checks.StatusCheckResult) {
-	coll := dbClient.Database("status").Collection("check_results")
-	r, err := coll.InsertOne(context.TODO(), result)
-	if err != nil {
-		log.Errorf("Failed to insert document: %s", err)
+func startChecks(runID int64, app *application.State, workerChecks *checks.Checks) {
+	log.Infof("Starting checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks", app.Region, runID, len(workerChecks.StatusChecks), len(workerChecks.SSLChecks))
+	start := time.Now()
+	checkWg := new(sync.WaitGroup)
+	app.ChecksMutex.Lock()
+	out := make(chan checks.StatusCheckResult, len(workerChecks.StatusChecks))
+	for _, statusCheck := range workerChecks.StatusChecks {
+		checkWg.Add(1)
+		go check(checkWg, app, statusCheck.ID, runID, app.Region, statusCheck.URL, out)
+		time.Sleep(500 * time.Nanosecond)
 	}
-	log.Infof("Inserted document with _id: %v\n", r.InsertedID)
+	app.ChecksMutex.Unlock()
+	checkWg.Wait()
+	close(out)
+	log.Infof("Completed checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks (elapsed: %s)", app.Region, runID, len(workerChecks.StatusChecks), len(workerChecks.SSLChecks), time.Since(start))
+	log.Infof("Sending check results to mongo.")
+	sendCheckResults(app, out)
+}
+
+func sendCheckResults(app *application.State, out chan checks.StatusCheckResult) {
+	coll := app.DbClient.Database("status").Collection("check_results")
+	var results []interface{}
+	for result := range out {
+		results = append(results, result)
+	}
+
+	iResult, err := coll.InsertMany(context.TODO(), results)
+	if err != nil {
+		log.Errorf("Failed to InsertMany: %s", err)
+		return
+	}
+	log.Infof("Successfully inserted %d documents", len(iResult.InsertedIDs))
 }
 
 // StartWorker starts the worker process
@@ -73,21 +102,15 @@ func StartWorker(app *application.State) {
 	defer cancel()
 	data.CreateResultCollection(ctx, app.DbClient, "check_results")
 
-	checks := data.GetChecks(app.DbClient, app.Region)
+	workerChecks := data.GetChecks(app.DbClient, app.Region)
 	for {
 		runID := time.Now().Unix()
-		log.Infof("Starting checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks", app.Region, runID, len(checks.StatusChecks), len(checks.SSLChecks))
-		wg := new(sync.WaitGroup)
-		for _, statusCheck := range checks.StatusChecks {
-			wg.Add(1)
-			go check(wg, app.DbClient, statusCheck.ID, runID, app.Region, statusCheck.URL)
-		}
-		wg.Wait()
-		log.Infof("Completed checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks", app.Region, runID, len(checks.StatusChecks), len(checks.SSLChecks))
-		time.Sleep(time.Second * 300)
+		log.Infof("running %d checks", len(workerChecks.StatusChecks))
+		go startChecks(runID, app, &workerChecks)
 
+		time.Sleep(time.Second * 300)
 		app.ChecksMutex.Lock()
-		checks = data.GetChecks(app.DbClient, app.Region)
+		workerChecks = data.GetChecks(app.DbClient, app.Region)
 		app.ChecksMutex.Unlock()
 	}
 }
