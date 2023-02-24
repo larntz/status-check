@@ -25,11 +25,9 @@ type StatusCheckMetadata struct {
 
 // StatusCheckResult is the result of a StatusCheck
 type StatusCheckResult struct {
-	ID           string              `bson:"-"`
 	Metadata     StatusCheckMetadata `bson:"metadata"`
 	Timestamp    time.Time           `bson:"timestamp"`
 	ResponseID   string              `bson:"-"`
-	Region       string              `bson:"-"`
 	ResponseCode int                 `bson:"response_code"`
 	ResponseTime int                 `bson:"response_time"`
 	ResponseInfo string              `bson:"response_info"`
