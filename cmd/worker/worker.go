@@ -3,8 +3,8 @@ package worker
 
 import (
 	"context"
+	"math/rand"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/larntz/status/internal/application"
@@ -22,78 +22,66 @@ import (
 // TODO get ttfb or some kind of request timing
 // https://stackoverflow.com/questions/48077098/getting-ttfb-time-to-first-byte-value-in-golang/48077762#48077762
 
-func check(wg *sync.WaitGroup, app *application.State, checkID string, runID int64, region string, url string, out chan checks.StatusCheckResult) {
-	defer wg.Done()
+func check(ctx context.Context, delay int, app *application.State, check *checks.StatusCheck) {
+	time.Sleep(time.Duration(delay) * time.Second)
+
 	metadata := checks.StatusCheckMetadata{
-		Region:  region,
-		CheckID: checkID,
+		Region:  app.Region,
+		CheckID: check.ID,
 	}
-	result := checks.StatusCheckResult{
-		ID:        checkID,
-		Timestamp: time.Unix(runID, 0),
-		Region:    region,
-		Metadata:  metadata,
+	for {
+		result := checks.StatusCheckResult{
+			ID:        check.ID,
+			Timestamp: time.Now().UTC(),
+			Region:    app.Region,
+			Metadata:  metadata,
+		}
+
+		client := http.Client{
+			Timeout: 15 * time.Second,
+		}
+		resp, err := client.Get(check.URL)
+		if err != nil {
+			result.ResponseInfo = err.Error()
+			go sendCheckResult(app, &result)
+			log.Errorf("%+v", result)
+			return
+		}
+		defer resp.Body.Close()
+
+		result.ResponseCode = resp.StatusCode
+		result.ResponseInfo = resp.Status
+
+		result.ResponseTime = 5
+		go sendCheckResult(app, &result)
+
+		log.Infof("%+v", result)
+		time.Sleep(time.Duration(check.Interval) * time.Second)
 	}
-
-	// This will time out the http client stuff. The entire run should take close to this amount of time, any
-	// check not finished by the Timeout will be canceled.
-	client := http.Client{
-		Timeout: 10 * time.Second,
-	}
-	resp, err := client.Get(url)
-	if err != nil {
-		//log.Errorf("Check result runID: %d, error: %s", runID, err)
-		result.ResponseInfo = err.Error()
-		out <- result
-		//go sendCheckResult(app, &result)
-		log.Errorf("%+v", result)
-		return
-	}
-	defer resp.Body.Close()
-
-	result.ResponseCode = resp.StatusCode
-	result.ResponseInfo = resp.Status
-
-	result.ResponseTime = 5
-	out <- result
-	//go sendCheckResult(app, &result)
-
-	//log.Infof("Check result runID: %d, url: %s, status_code: %d", runID, url, resp.StatusCode)
-	log.Infof("%+v", result)
 }
 
 func startChecks(runID int64, app *application.State, workerChecks *checks.Checks) {
 	log.Infof("Starting checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks", app.Region, runID, len(workerChecks.StatusChecks), len(workerChecks.SSLChecks))
-	start := time.Now()
-	checkWg := new(sync.WaitGroup)
 	app.ChecksMutex.Lock()
-	out := make(chan checks.StatusCheckResult, len(workerChecks.StatusChecks))
+
+	rand.Seed(time.Now().Unix())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for _, statusCheck := range workerChecks.StatusChecks {
-		checkWg.Add(1)
-		go check(checkWg, app, statusCheck.ID, runID, app.Region, statusCheck.URL, out)
-		time.Sleep(500 * time.Nanosecond)
+		delay := rand.Int() % statusCheck.Interval
+		go check(ctx, delay, app, &statusCheck)
 	}
 	app.ChecksMutex.Unlock()
-	checkWg.Wait()
-	close(out)
-	log.Infof("Completed checks region: %s, runID: %d, %d StatusChecks, %d SSLChecks (elapsed: %s)", app.Region, runID, len(workerChecks.StatusChecks), len(workerChecks.SSLChecks), time.Since(start))
-	log.Infof("Sending check results to mongo.")
-	sendCheckResults(app, out)
 }
 
-func sendCheckResults(app *application.State, out chan checks.StatusCheckResult) {
+func sendCheckResult(app *application.State, result *checks.StatusCheckResult) {
 	coll := app.DbClient.Database("status").Collection("check_results")
-	var results []interface{}
-	for result := range out {
-		results = append(results, result)
-	}
-
-	iResult, err := coll.InsertMany(context.TODO(), results)
+	iResult, err := coll.InsertOne(context.TODO(), result)
 	if err != nil {
 		log.Errorf("Failed to InsertMany: %s", err)
 		return
 	}
-	log.Infof("Successfully inserted %d documents", len(iResult.InsertedIDs))
+	log.Infof("Successfully inserted document %s, checkID: %s", iResult.InsertedID, result.ID)
 }
 
 // StartWorker starts the worker process
