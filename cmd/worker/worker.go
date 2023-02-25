@@ -11,8 +11,7 @@ import (
 	"github.com/larntz/status/internal/application"
 	"github.com/larntz/status/internal/checks"
 	"github.com/larntz/status/internal/data"
-	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 )
 
 // TODO get ttfb or some kind of request timing
@@ -24,7 +23,7 @@ func StartWorker(app *application.State) {
 	defer cancel()
 	data.CreateResultCollection(ctx, app.DbClient, "check_results")
 
-	workerChecks := data.GetChecks(app.DbClient, app.Region)
+	workerChecks := data.GetChecks(app.DbClient, app.Region, app.Log)
 	var wg sync.WaitGroup
 	app.ChecksMutex.Lock()
 	rand.Seed(time.Now().Unix())
@@ -41,7 +40,7 @@ func StartWorker(app *application.State) {
 
 func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.StatusCheck) {
 	defer wg.Done()
-	log.Infof("Preparing check %+v", check)
+	app.Log.Debug("Preparing check", zap.Any("check", check))
 	time.Sleep(time.Duration(delay) * time.Second)
 
 	result := checks.StatusCheckResult{
@@ -60,8 +59,13 @@ func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.S
 		resp, err := client.Get(check.URL)
 		if err != nil {
 			result.ResponseInfo = err.Error()
-			go sendCheckResult(app.DbClient, &result)
-			log.Errorf("%+v", result)
+			go sendCheckResult(app, &result)
+			app.Log.Error("client.Get() error",
+				zap.String("check_id", result.Metadata.CheckID),
+				zap.String("region", result.Metadata.Region),
+				zap.Int("response_code", result.ResponseCode),
+				zap.String("response_info", result.ResponseInfo),
+			)
 			return
 		}
 
@@ -72,20 +76,25 @@ func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.S
 		resp.Body.Close()
 
 		result.ResponseTime = 5
-		go sendCheckResult(app.DbClient, &result)
+		go sendCheckResult(app, &result)
 
-		log.Infof("Check Result: %+v", result)
-		log.Infof("Check %s sleeping for %d seconds", check.ID, check.Interval)
+		app.Log.Info("check_result",
+			zap.String("check_id", result.Metadata.CheckID),
+			zap.String("region", result.Metadata.Region),
+			zap.Int("response_code", result.ResponseCode),
+			zap.String("response_info", result.ResponseInfo),
+			zap.Int("interval", check.Interval))
+
 		time.Sleep(time.Duration(check.Interval) * time.Second)
 	}
 }
 
-func sendCheckResult(client *mongo.Client, result *checks.StatusCheckResult) {
-	coll := client.Database("status").Collection("check_results")
+func sendCheckResult(app *application.State, result *checks.StatusCheckResult) {
+	coll := app.DbClient.Database("status").Collection("check_results")
 	iResult, err := coll.InsertOne(context.TODO(), result)
 	if err != nil {
-		log.Errorf("Failed to InsertMany: %s", err)
+		app.Log.Error("Failed to InsertMany", zap.String("err", err.Error()))
 		return
 	}
-	log.Infof("Successfully inserted document %s, checkID: %s", iResult.InsertedID, result.Metadata.CheckID)
+	app.Log.Debug("Successfully inserted document", zap.Any("id", iResult.InsertedID), zap.String("request_id", result.Metadata.CheckID))
 }

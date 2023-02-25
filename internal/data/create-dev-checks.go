@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/larntz/status/internal/checks"
-	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 )
 
 // CreateDevChecks will create a few checks we can use during development
-func CreateDevChecks(client *mongo.Client, filename string) {
+func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 	// create some checks to use during development
 	statusChecksColl := client.Database("status").Collection("status_checks")
 
@@ -41,7 +41,7 @@ func CreateDevChecks(client *mongo.Client, filename string) {
 	log.Info("Starting InsertMany")
 	result, err := statusChecksColl.InsertMany(ctx, statusChecks)
 	if err != nil {
-		log.Fatalf("Failed to InsertMany: %s", err)
+		log.Fatal("Failed to InsertMany", zap.String("err", err.Error()))
 	}
-	log.Infof("Inserted %d checks", len(result.InsertedIDs))
+	log.Info("successfully created checks", zap.Int("check_count", len(result.InsertedIDs)))
 }

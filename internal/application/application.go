@@ -8,6 +8,7 @@ import (
 
 	"github.com/larntz/status/internal/checks"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.uber.org/zap"
 )
 
 // State type holds our application state
@@ -17,5 +18,6 @@ type State struct {
 	ChecksTimestamp time.Time
 	Ctx             context.Context
 	DbClient        *mongo.Client // is this abstracted enough?
+	Log             *zap.Logger
 	Region          string
 }

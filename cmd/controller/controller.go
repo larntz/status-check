@@ -8,7 +8,7 @@ import (
 
 	"github.com/larntz/status/internal/application"
 	"github.com/larntz/status/internal/data"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // StartController runs the controller
@@ -17,11 +17,11 @@ func StartController(app *application.State) {
 	// handle route using handler function
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		region := "us-east-1"
-		checks := data.GetChecks(app.DbClient, region)
-		log.Infof("Loaded %d checks for region '%s'", len(checks.StatusChecks), region)
+		checks := data.GetChecks(app.DbClient, region, app.Log)
+		app.Log.Info("Loaded checks", zap.Int("check_count", len(checks.StatusChecks)), zap.String("region", region))
 		response, err := json.Marshal(checks)
 		if err != nil {
-			log.Error("error marshalling check")
+			app.Log.Error("error marshalling check")
 		}
 		fmt.Fprintf(w, string(response))
 	})
