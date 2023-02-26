@@ -60,7 +60,7 @@ func main() {
 }
 
 func dbLogin(ctx context.Context, app *application.State) {
-	app.Log.Info("DB Login start")
+	app.Log.Debug("DB Login start")
 	err := data.Connect(ctx, app)
 	if err != nil {
 		app.Log.Fatal("DB Login failed", zap.String("err", err.Error()))

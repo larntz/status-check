@@ -25,12 +25,15 @@ type StatusCheckMetadata struct {
 
 // StatusCheckResult is the result of a StatusCheck
 type StatusCheckResult struct {
-	Metadata     StatusCheckMetadata `bson:"metadata"`
-	Timestamp    time.Time           `bson:"timestamp"`
-	ResponseID   string              `bson:"-"`
-	ResponseCode int                 `bson:"response_code"`
-	ResponseTime int                 `bson:"response_time"`
-	ResponseInfo string              `bson:"response_info"`
+	Metadata      StatusCheckMetadata `bson:"metadata"`
+	Timestamp     time.Time           `bson:"timestamp"`
+	ResponseID    string              `bson:"-"`
+	ResponseCode  int                 `bson:"response_code"`
+	TTFB          int64               `bson:"firstbyte_ms"`
+	ConnectTiming int64               `bson:"connect_ms"`
+	TLSTiming     int64               `bson:"tls_ms"`
+	DNSTiming     int64               `bson:"dns_ms"`
+	ResponseInfo  string              `bson:"response_info"`
 }
 
 // SSLCheck defines an SSL check

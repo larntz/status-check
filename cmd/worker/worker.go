@@ -3,8 +3,11 @@ package worker
 
 import (
 	"context"
+	"crypto/tls"
+	"log"
 	"math/rand"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 	"time"
 
@@ -43,6 +46,33 @@ func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.S
 	app.Log.Debug("Preparing check", zap.Any("check", check))
 	time.Sleep(time.Duration(delay) * time.Second)
 
+	http.DefaultClient.Timeout = 15 * time.Second
+	req, _ := http.NewRequest("GET", check.URL, nil)
+
+	var start, dns, tlsHandshake, connect time.Time
+	var ttfb, dnsTime, tlsTime, connectTime time.Duration
+
+	trace := &httptrace.ClientTrace{
+		DNSStart: func(dsi httptrace.DNSStartInfo) { dns = time.Now() },
+		DNSDone: func(ddi httptrace.DNSDoneInfo) {
+			dnsTime = time.Since(dns)
+		},
+
+		TLSHandshakeStart: func() { tlsHandshake = time.Now() },
+		TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
+			tlsTime = time.Since(tlsHandshake)
+		},
+
+		ConnectStart: func(network, addr string) { connect = time.Now() },
+		ConnectDone: func(network, addr string, err error) {
+			connectTime = time.Since(connect)
+		},
+
+		GotFirstResponseByte: func() {
+			ttfb = time.Since(start)
+		},
+	}
+
 	result := checks.StatusCheckResult{
 		Metadata: checks.StatusCheckMetadata{
 			Region:  app.Region,
@@ -50,13 +80,16 @@ func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.S
 		},
 	}
 
-	client := http.Client{
-		Timeout: 15 * time.Second,
-	}
-
 	for {
-		result.Timestamp = time.Now().UTC()
-		resp, err := client.Get(check.URL)
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+		start = time.Now()
+		resp, err := http.DefaultTransport.RoundTrip(req)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		result.Timestamp = start.UTC()
+		//resp, err := client.Get(check.URL)
 		if err != nil {
 			result.ResponseInfo = err.Error()
 			go sendCheckResult(app, &result)
@@ -71,11 +104,14 @@ func check(wg *sync.WaitGroup, delay int, app *application.State, check checks.S
 
 		result.ResponseCode = resp.StatusCode
 		result.ResponseInfo = resp.Status
+		result.TTFB = ttfb.Milliseconds()
+		result.DNSTiming = dnsTime.Milliseconds()
+		result.TLSTiming = tlsTime.Milliseconds()
+		result.ConnectTiming = connectTime.Milliseconds()
 
 		// done with resp
 		resp.Body.Close()
 
-		result.ResponseTime = 5
 		go sendCheckResult(app, &result)
 
 		app.Log.Info("check_result",
