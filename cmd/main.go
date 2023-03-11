@@ -7,27 +7,24 @@ import (
 	"os"
 	"time"
 
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 
-	"github.com/larntz/status/cmd/controller"
 	"github.com/larntz/status/cmd/worker"
-	"github.com/larntz/status/internal/application"
 	"github.com/larntz/status/internal/data"
 )
 
 func main() {
-	var app application.State
-	var err error
-	app.Log, err = zap.NewProduction()
+	log, err := zap.NewProduction()
 	if err != nil {
 		fmt.Println("Unable to setup logger. Exiting...")
 		os.Exit(1)
 	}
-	defer app.Log.Sync()
+	defer log.Sync()
 
-	app.Log.Info("Starting up...")
+	log.Info("Starting")
 	if len(os.Args) < 2 {
-		app.Log.Fatal("Must specify subcommand: 'controller' or 'worker'")
+		log.Fatal("Must specify subcommand: 'controller' or 'worker'")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -36,34 +33,39 @@ func main() {
 	switch os.Args[1] {
 	case "create-dev-checks":
 		if len(os.Args) < 3 {
-			app.Log.Fatal("Not enough args, must specify a csv file for creating checks.")
+			log.Fatal("Not enough args, must specify a csv file for creating checks.")
 		}
-		dbLogin(ctx, &app)
-		defer app.DbClient.Disconnect(ctx)
-		data.CreateDevChecks(app.DbClient, os.Args[2], app.Log)
+		client := dbLogin(ctx, log)
+		defer client.Disconnect(ctx)
+		data.CreateDevChecks(client, os.Args[2], log)
 	case "controller":
-		dbLogin(ctx, &app)
-		defer app.DbClient.Disconnect(ctx)
-		controller.StartController(&app)
+		log.Fatal("controller ain't ready")
+		// dbLogin(ctx, &app)
+		// defer app.DbClient.Disconnect(ctx)
+		// controller.StartController(&app)
 	case "worker":
 		var ok bool
-		app.Region, ok = os.LookupEnv("WORKER_REGION")
+		scheduler := worker.NewScheduler()
+		scheduler.Region, ok = os.LookupEnv("WORKER_REGION")
 		if !ok {
-			app.Log.Fatal("WORKER_REGION env var not set. Exiting.")
+			log.Fatal("WORKER_REGION env var not set. Exiting.")
 		}
-		dbLogin(ctx, &app)
-		defer app.DbClient.Disconnect(ctx)
-		worker.StartWorker(&app)
+		scheduler.Log = log
+		scheduler.DBClient = dbLogin(ctx, log)
+		defer scheduler.DBClient.Disconnect(ctx)
+		scheduler.Start()
+
 	default:
-		app.Log.Fatal("Must specify subcommand: 'controller' or 'worker'")
+		log.Fatal("Must specify subcommand: 'controller' or 'worker'")
 	}
 }
 
-func dbLogin(ctx context.Context, app *application.State) {
-	app.Log.Debug("DB Login start")
-	err := data.Connect(ctx, app)
+func dbLogin(ctx context.Context, log *zap.Logger) *mongo.Client {
+	log.Debug("DB Login start")
+	dbClient, err := data.Connect(ctx, log)
 	if err != nil {
-		app.Log.Fatal("DB Login failed", zap.String("err", err.Error()))
+		log.Fatal("DB Login failed", zap.String("err", err.Error()))
 	}
-	app.Log.Info("DB Login succesful")
+	log.Info("DB Login succesful")
+	return dbClient
 }

@@ -4,6 +4,7 @@ package data
 import (
 	"context"
 	"os"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -11,49 +12,50 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.uber.org/zap"
 
-	"github.com/larntz/status/internal/application"
 	"github.com/larntz/status/internal/checks"
 )
 
 // Connect verifies we can connect to the database
-func Connect(ctx context.Context, app *application.State) error {
+func Connect(ctx context.Context, log *zap.Logger) (*mongo.Client, error) {
 	connString, ok := os.LookupEnv("DB_CONNECTION_STRING")
 	if !ok {
-		app.Log.Fatal("DB_CONNECTION_STRING must be set. Exiting.")
+		log.Fatal("DB_CONNECTION_STRING must be set. Exiting.")
 	}
 
-	var err error
-	app.DbClient, err = mongo.NewClient(options.Client().ApplyURI(connString))
+	dbClient, err := mongo.NewClient(options.Client().ApplyURI(connString))
 	if err != nil {
-		app.Log.Error("NewClient() error", zap.String("err", err.Error()))
-		return err
+		log.Error("NewClient() error", zap.String("err", err.Error()))
+		return nil, err
 	}
-	err = app.DbClient.Connect(ctx)
+	err = dbClient.Connect(ctx)
 	if err != nil {
-		app.Log.Error("Connect() error", zap.String("err", err.Error()))
-		return err
+		log.Error("Connect() error", zap.String("err", err.Error()))
+		return nil, err
 	}
 
 	// Ping the primary
-	if err := app.DbClient.Ping(ctx, readpref.Primary()); err != nil {
-		app.Log.Error("Can't ping the primary", zap.String("err", err.Error()))
-		return err
+	if err := dbClient.Ping(ctx, readpref.Primary()); err != nil {
+		log.Error("Can't ping the primary", zap.String("err", err.Error()))
+		return nil, err
 	}
 
-	return nil
+	return dbClient, nil
 }
 
 // GetChecks returns all checks assigned to a region
 func GetChecks(client *mongo.Client, region string, log *zap.Logger) checks.Checks {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(30)*time.Second)
+	defer cancel()
+
 	filter := bson.D{{Key: "regions", Value: region}}
 	statusChecksColl := client.Database("status").Collection("status_checks")
-	cursor, err := statusChecksColl.Find(context.TODO(), filter)
+	cursor, err := statusChecksColl.Find(ctx, filter)
 	if err != nil {
 		log.Error("Find() error", zap.String("err", err.Error()))
 	}
 
 	var statusChecks checks.Checks
-	if err = cursor.All(context.TODO(), &statusChecks.StatusChecks); err != nil {
+	if err = cursor.All(ctx, &statusChecks.StatusChecks); err != nil {
 		log.Error("cursor.All() error", zap.String("err", err.Error()))
 	}
 

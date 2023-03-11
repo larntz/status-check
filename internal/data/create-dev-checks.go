@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
@@ -19,19 +20,24 @@ func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 
 	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Println(err)
+		log.Error("failed to open file", zap.String("err", err.Error()))
 	}
 	reader := csv.NewReader(file)
 	domains, _ := reader.ReadAll()
 
 	var statusChecks []interface{}
+	interval := []int{60, 300, 900}
 
 	for i, domain := range domains {
+		randI := rand.Intn(2)
 		statusChecks = append(statusChecks, checks.StatusCheck{
 			ID:       fmt.Sprintf("dev-check-%d", i),
 			URL:      domain[1],
-			Interval: 300,
+			Interval: interval[randI],
 			Regions:  []string{"us-dev-1", "us-dev-2"},
+			Modified: time.Now().UTC(),
+			Serial:   1,
+			Active:   true,
 		})
 	}
 
