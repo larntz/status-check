@@ -39,10 +39,12 @@ func (scheduler *Scheduler) Start() {
 		scheduler.Region, scheduler.Log)
 
 	for i, chk := range startChecks.StatusChecks {
-		scheduler.Log.Info("Adding StatusCheck", zap.String("CheckID", chk.ID), zap.Int("Interval", chk.Interval))
-		scheduler.statusChecks[chk.ID] = &startChecks.StatusChecks[i]
-		scheduler.wg.Add(1)
-		go scheduler.statusChecker(scheduler.statusChecks[chk.ID])
+		if chk.Active {
+			scheduler.Log.Info("Adding StatusCheck", zap.String("CheckID", chk.ID), zap.Int("Interval", chk.Interval))
+			scheduler.statusChecks[chk.ID] = &startChecks.StatusChecks[i]
+			scheduler.wg.Add(1)
+			go scheduler.statusChecker(scheduler.statusChecks[chk.ID])
+		}
 	}
 
 	for _, chk := range startChecks.SSLChecks {
@@ -94,13 +96,13 @@ func (scheduler *Scheduler) UpdateChecks() {
 	for i, update := range updatedChecks.StatusChecks {
 		found = false
 		for j, chk := range scheduler.statusChecks {
-			if update.ID == chk.ID {
+			if update.ID == chk.ID && chk.Active {
 				found = true
 				scheduler.Log.Info("Updating StatusCheck", zap.String("CheckID", update.ID), zap.Int("Interval", update.Interval))
 				*scheduler.statusChecks[j] = updatedChecks.StatusChecks[i]
 			}
 		}
-		if !found {
+		if !found && update.Active {
 			scheduler.Log.Info("Adding StatusCheck", zap.String("CheckID", update.ID), zap.Int("Interval", update.Interval))
 			scheduler.wg.Add(1)
 			scheduler.statusChecks[update.ID] = &updatedChecks.StatusChecks[i]
