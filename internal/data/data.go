@@ -22,7 +22,14 @@ func Connect(ctx context.Context, log *zap.Logger) (*mongo.Client, error) {
 		log.Fatal("DB_CONNECTION_STRING must be set. Exiting.")
 	}
 
-	dbClient, err := mongo.NewClient(options.Client().ApplyURI(connString))
+	options := options.Client()
+	options.ApplyURI(connString)
+	maxPoolSize := uint64(500)
+	options.MaxPoolSize = &maxPoolSize
+	minPoolSize := uint64(100)
+	options.MinPoolSize = &minPoolSize
+
+	dbClient, err := mongo.NewClient(options)
 	if err != nil {
 		log.Error("NewClient() error", zap.String("err", err.Error()))
 		return nil, err

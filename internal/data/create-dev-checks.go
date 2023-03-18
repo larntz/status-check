@@ -16,6 +16,10 @@ import (
 // CreateDevChecks will create a few checks we can use during development
 func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 	// create some checks to use during development
+	log.Info("Dropping collections")
+	client.Database("status").Collection("status_checks").Drop(context.TODO())
+	client.Database("status").Collection("check_results").Drop(context.TODO())
+
 	statusChecksColl := client.Database("status").Collection("status_checks")
 
 	file, err := os.Open(filename)
@@ -26,10 +30,11 @@ func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 	domains, _ := reader.ReadAll()
 
 	var statusChecks []interface{}
-	interval := []int{60, 300, 900}
+	// interval := []int{60, 300, 900}
+	interval := []int{5, 15, 30}
 
 	for i, domain := range domains {
-		randI := rand.Intn(2)
+		randI := rand.Intn(3)
 		statusChecks = append(statusChecks, checks.StatusCheck{
 			ID:       fmt.Sprintf("dev-check-%d", i),
 			URL:      domain[1],
