@@ -45,15 +45,15 @@ func main() {
 		// controller.StartController(&app)
 	case "worker":
 		var ok bool
-		scheduler := worker.NewScheduler()
-		scheduler.Region, ok = os.LookupEnv("WORKER_REGION")
+		state := worker.NewState()
+		state.Region, ok = os.LookupEnv("WORKER_REGION")
 		if !ok {
 			log.Fatal("WORKER_REGION env var not set. Exiting.")
 		}
-		scheduler.Log = log
-		scheduler.DBClient = dbLogin(ctx, log)
-		defer scheduler.DBClient.Disconnect(ctx)
-		scheduler.Start()
+		state.Log = log
+		state.DBClient = dbLogin(ctx, log)
+		defer state.DBClient.Disconnect(ctx)
+		state.RunWorker()
 
 	default:
 		log.Fatal("Must specify subcommand: 'controller' or 'worker'")

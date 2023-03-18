@@ -11,16 +11,19 @@ import (
 	"go.uber.org/zap"
 )
 
-func (scheduler *Scheduler) statusChecker(check *checks.StatusCheck) {
-	defer scheduler.wg.Done()
-	scheduler.Log.Debug("Preparing check", zap.Any("check", check))
+func (state *State) statusCheck(ch chan *checks.StatusCheck) {
+	defer state.wg.Done()
+	check := <-ch
+
+	// delay to distribute checks over time
 	delay := rand.Intn(check.Interval)
-	scheduler.Log.Debug("Check Delay", zap.String("CheckID", check.ID), zap.Int("Seconds", delay))
+	state.Log.Debug("Check Delay", zap.String("CheckID", check.ID), zap.Int("Seconds", delay))
 	time.Sleep(time.Duration(delay) * time.Second)
 
+	// Setup HTTP client once before we start the thread loop
 	req, err := http.NewRequest("GET", check.URL, nil)
 	if err != nil {
-		scheduler.Log.Error("failed to create NewRequest", zap.String("err", err.Error()))
+		state.Log.Error("failed to create NewRequest", zap.String("err", err.Error()))
 	}
 
 	var start, dns, tlsHandshake, connect time.Time
@@ -49,7 +52,7 @@ func (scheduler *Scheduler) statusChecker(check *checks.StatusCheck) {
 
 	result := checks.StatusCheckResult{
 		Metadata: checks.StatusCheckMetadata{
-			Region:  scheduler.Region,
+			Region:  state.Region,
 			CheckID: check.ID,
 		},
 	}
@@ -58,52 +61,52 @@ func (scheduler *Scheduler) statusChecker(check *checks.StatusCheck) {
 
 	for {
 		select {
+		case update, ok := <-ch:
+			if !update.Active {
+				state.Log.Info("Check no longer active. Exiting.", zap.String("CheckID", check.ID))
+				return
+			} else if !ok {
+				state.Log.Info("Check channel closed. Exiting.\n", zap.String("CheckID", check.ID))
+				return
+			}
+			check = update
+
 		case <-ticker.C:
-			scheduler.Log.Debug("Starting Check", zap.String("CheckID", check.ID), zap.Bool("Active", check.Active))
-			if check.Active {
-				http.DefaultClient.Timeout = time.Duration(check.HTTPTimeout) * time.Second
-				start = time.Now()
-				resp, err := http.DefaultTransport.RoundTrip(req)
-				if err != nil {
-					result.ResponseInfo = err.Error()
-					scheduler.Log.Error("client.Get() error",
-						zap.String("check_id", result.Metadata.CheckID),
-						zap.String("region", result.Metadata.Region),
-						zap.Int("response_code", result.ResponseCode),
-						zap.String("response_info", result.ResponseInfo),
-					)
-					go sendStatusCheckResult(scheduler.DBClient, scheduler.Log, &result)
-					continue
-				}
-
-				result.Timestamp = start.UTC()
-				result.ResponseCode = resp.StatusCode
-				result.ResponseInfo = resp.Status
-				result.TTFB = ttfb.Milliseconds()
-				result.DNSTiming = dnsTime.Milliseconds()
-				result.TLSTiming = tlsTime.Milliseconds()
-				result.ConnectTiming = connectTime.Milliseconds()
-
-				// done with resp
-				resp.Body.Close()
-
-				go sendStatusCheckResult(scheduler.DBClient, scheduler.Log, &result)
-
-				scheduler.Log.Info("check_result",
+			state.Log.Debug("Starting Check", zap.String("CheckID", check.ID), zap.Bool("Active", check.Active))
+			http.DefaultClient.Timeout = time.Duration(check.HTTPTimeout) * time.Second
+			start = time.Now()
+			resp, err := http.DefaultTransport.RoundTrip(req)
+			if err != nil {
+				result.ResponseInfo = err.Error()
+				state.Log.Error("httpClient.Get() error",
 					zap.String("check_id", result.Metadata.CheckID),
 					zap.String("region", result.Metadata.Region),
 					zap.Int("response_code", result.ResponseCode),
 					zap.String("response_info", result.ResponseInfo),
-					zap.Int("interval", check.Interval))
-			} else {
-				scheduler.Log.Info("Check Now Inactive", zap.String("CheckID", check.ID))
-				return
+				)
+				go sendStatusCheckResult(state.DBClient, state.Log, &result)
+				continue
 			}
-		case stop, ok := <-scheduler.stop:
-			if !ok || stop {
-				scheduler.Log.Info("statusChecker Stopping", zap.String("CheckID", check.ID))
-				return
-			}
+
+			result.Timestamp = start.UTC()
+			result.ResponseCode = resp.StatusCode
+			result.ResponseInfo = resp.Status
+			result.TTFB = ttfb.Milliseconds()
+			result.DNSTiming = dnsTime.Milliseconds()
+			result.TLSTiming = tlsTime.Milliseconds()
+			result.ConnectTiming = connectTime.Milliseconds()
+
+			// done with resp
+			resp.Body.Close()
+
+			go sendStatusCheckResult(state.DBClient, state.Log, &result)
+
+			state.Log.Info("check_result",
+				zap.String("check_id", result.Metadata.CheckID),
+				zap.String("region", result.Metadata.Region),
+				zap.Int("response_code", result.ResponseCode),
+				zap.String("response_info", result.ResponseInfo),
+				zap.Int("interval", check.Interval))
 		}
 	}
 }
