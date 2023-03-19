@@ -84,7 +84,8 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 					zap.Int("response_code", result.ResponseCode),
 					zap.String("response_info", result.ResponseInfo),
 				)
-				go sendStatusCheckResult(state.DBClient, state.Log, &result)
+				// go sendStatusCheckResult(state.DBClient, state.Log, &result)
+				state.statusCheckResultCh <- &result
 				continue
 			}
 
@@ -99,7 +100,8 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 			// done with resp
 			resp.Body.Close()
 
-			go sendStatusCheckResult(state.DBClient, state.Log, &result)
+			// go sendStatusCheckResult(state.DBClient, state.Log, &result)
+			state.statusCheckResultCh <- &result
 
 			state.Log.Info("check_result",
 				zap.String("check_id", result.Metadata.CheckID),

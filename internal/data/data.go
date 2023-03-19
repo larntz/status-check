@@ -26,7 +26,7 @@ func Connect(ctx context.Context, log *zap.Logger) (*mongo.Client, error) {
 	options.ApplyURI(connString)
 	maxPoolSize := uint64(500)
 	options.MaxPoolSize = &maxPoolSize
-	minPoolSize := uint64(100)
+	minPoolSize := uint64(50)
 	options.MinPoolSize = &minPoolSize
 
 	dbClient, err := mongo.NewClient(options)
@@ -51,7 +51,7 @@ func Connect(ctx context.Context, log *zap.Logger) (*mongo.Client, error) {
 
 // GetChecks returns all checks assigned to a region
 func GetChecks(client *mongo.Client, region string, log *zap.Logger) checks.Checks {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(30)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
 	filter := bson.D{{Key: "regions", Value: region}}
