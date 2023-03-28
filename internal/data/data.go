@@ -51,7 +51,7 @@ func Connect(ctx context.Context, log *zap.Logger) (*mongo.Client, error) {
 
 // GetChecks returns all checks assigned to a region
 func GetChecks(client *mongo.Client, region string, log *zap.Logger) checks.Checks {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	filter := bson.D{{Key: "regions", Value: region}}

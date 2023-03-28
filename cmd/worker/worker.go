@@ -13,35 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func (state *State) sendStatusCheckResult() {
-	coll := state.DBClient.Database("status").Collection("check_results")
-
-	sendTicker := time.NewTicker(30 * time.Second)
-	var results []interface{}
-	for {
-		select {
-		case <-sendTicker.C:
-			if len(results) > 1 {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				insertResult, err := coll.InsertMany(ctx, results)
-				if err != nil {
-					state.Log.Error("InsertMany Failed", zap.String("err", err.Error()))
-					continue
-				}
-				state.Log.Info("InsertMany Successful", zap.Int("Document Count", len(insertResult.InsertedIDs)))
-				results = results[:0]
-				cancel()
-			} else {
-				state.Log.Info("InsertMany - no results to insert")
-			}
-
-		case result := <-state.statusCheckResultCh:
-			results = append(results, result)
-
-		}
-	}
-}
-
 // State holds all state for the worker:
 // A map containing with keys being the CheckID and
 // values are channels allowing check updates to be sent to the thread
@@ -86,14 +57,14 @@ func (state *State) RunWorker() {
 		}
 	}
 
-	updateChecksTicker := time.NewTicker(time.Duration(1) * time.Minute)
+	updateChecksTicker := time.NewTicker(time.Duration(3) * time.Minute)
 	statusTicker := time.NewTicker(time.Duration(1) * time.Minute)
 
 	for {
 		select {
 		case <-updateChecksTicker.C:
-			state.Log.Info("Refreshing Status Checks Start")
-			go state.UpdateChecks()
+			state.Log.Info("Update Status Checks Start")
+			state.UpdateChecks()
 		case <-statusTicker.C:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
@@ -136,4 +107,33 @@ func (state *State) UpdateChecks() {
 
 	// TODO
 	// update ssl checks
+}
+
+func (state *State) sendStatusCheckResult() {
+	coll := state.DBClient.Database("status").Collection("check_results")
+
+	sendTicker := time.NewTicker(30 * time.Second)
+	var results []interface{}
+	for {
+		select {
+		case <-sendTicker.C:
+			if len(results) > 1 {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				insertResult, err := coll.InsertMany(ctx, results)
+				if err != nil {
+					state.Log.Error("InsertMany Failed", zap.String("err", err.Error()))
+					continue
+				}
+				state.Log.Info("InsertMany Successful", zap.Int("Document Count", len(insertResult.InsertedIDs)))
+				results = results[:0]
+				cancel()
+			} else {
+				state.Log.Info("InsertMany - no results to insert")
+			}
+
+		case result := <-state.statusCheckResultCh:
+			results = append(results, result)
+
+		}
+	}
 }
