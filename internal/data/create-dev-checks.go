@@ -30,8 +30,8 @@ func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 	domains, _ := reader.ReadAll()
 
 	var statusChecks []interface{}
-	// interval := []int{60, 300, 900}
-	interval := []int{5, 15, 30}
+	interval := []int{60, 300, 900}
+	//interval := []int{5, 15, 30}
 
 	for i, domain := range domains {
 		randI := rand.Intn(3)
