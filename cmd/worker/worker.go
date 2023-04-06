@@ -3,6 +3,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"time"
@@ -78,11 +79,15 @@ func (state *State) RunWorker() {
 
 // UpdateChecks fetches checks from DB and updates threads and state.checks.StatusChecks
 func (state *State) UpdateChecks() {
+	//TODO Updates are not working properly
+	// updated a check url but it kept using the old url
+
 	// Fetch checks and populate statusChecks map.
 	checkList := data.GetChecks(state.DBClient,
 		state.Region, state.Log)
 
 	for i, update := range checkList.StatusChecks {
+		fmt.Printf("update: %+v\n", update)
 		_, containsKey := state.statusChecks[update.ID]
 		if containsKey {
 			if state.statusChecks[update.ID].Active { // both checks active
