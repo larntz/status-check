@@ -10,12 +10,41 @@ import (
 
 	"github.com/larntz/status/internal/checks"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.uber.org/zap"
 )
 
 // CreateDevChecks will create a few checks we can use during development
-func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
+func CreateDevChecks(filename string, log *zap.Logger) {
 	// create some checks to use during development
+	connString, ok := os.LookupEnv("DB_CONNECTION_STRING")
+	if !ok {
+		log.Fatal("no environment variable DB_CONNECTION_STRING")
+	}
+
+	options := options.Client()
+	options.ApplyURI(connString)
+	maxPoolSize := uint64(500)
+	options.MaxPoolSize = &maxPoolSize
+	minPoolSize := uint64(50)
+	options.MinPoolSize = &minPoolSize
+
+	client, err := mongo.NewClient(options)
+	if err != nil {
+		log.Fatal("Unable to create mongo client.", zap.String("error", err.Error()))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = client.Connect(ctx)
+	if err != nil {
+		log.Fatal("Unable to connect to mongo.", zap.String("error", err.Error()))
+	}
+	defer client.Disconnect(context.Background())
+
+	// Ping the server
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		log.Fatal("Ping mongo failed.", zap.String("error", err.Error()))
+	}
 	log.Info("Dropping collections")
 	client.Database("status").Collection("status_checks").Drop(context.TODO())
 	client.Database("status").Collection("check_results").Drop(context.TODO())
@@ -30,8 +59,7 @@ func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 	domains, _ := reader.ReadAll()
 
 	var statusChecks []interface{}
-	interval := []int{60, 300, 900}
-	//interval := []int{5, 15, 30}
+	interval := []int{15, 30, 60, 120}
 
 	for i, domain := range domains {
 		randI := rand.Intn(3)
@@ -46,7 +74,7 @@ func CreateDevChecks(client *mongo.Client, filename string, log *zap.Logger) {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	// TODO add step to delete all docments with region us-dev-1 or us-dev-2
 	log.Info("Starting InsertMany")
