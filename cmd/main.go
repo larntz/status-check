@@ -2,12 +2,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 
 	"github.com/larntz/status/cmd/worker"
@@ -27,17 +24,12 @@ func main() {
 		log.Fatal("Must specify subcommand: 'controller' or 'worker'")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
 	switch os.Args[1] {
 	case "create-dev-checks":
 		if len(os.Args) < 3 {
 			log.Fatal("Not enough args, must specify a csv file for creating checks.")
 		}
-		client := dbLogin(ctx, log)
-		defer client.Disconnect(ctx)
-		data.CreateDevChecks(client, os.Args[2], log)
+		data.CreateDevChecks(os.Args[2], log)
 	case "controller":
 		log.Fatal("controller ain't ready")
 		// dbLogin(ctx, &app)
@@ -51,21 +43,14 @@ func main() {
 			log.Fatal("WORKER_REGION env var not set. Exiting.")
 		}
 		state.Log = log
-		state.DBClient = dbLogin(ctx, log)
-		defer state.DBClient.Disconnect(ctx)
+		state.DBClient = &data.MongoDB{}
+		if err := state.DBClient.Connect(); err != nil {
+			log.Fatal("Connect() to database failed.", zap.String("error", err.Error()))
+		}
+		defer state.DBClient.Disconnect()
 		state.RunWorker()
 
 	default:
 		log.Fatal("Must specify subcommand: 'controller' or 'worker'")
 	}
-}
-
-func dbLogin(ctx context.Context, log *zap.Logger) *mongo.Client {
-	log.Debug("DB Login start")
-	dbClient, err := data.Connect(ctx, log)
-	if err != nil {
-		log.Fatal("DB Login failed", zap.String("err", err.Error()))
-	}
-	log.Info("DB Login succesful")
-	return dbClient
 }

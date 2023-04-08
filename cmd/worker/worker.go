@@ -2,7 +2,6 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"sync"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/larntz/status/internal/checks"
 	"github.com/larntz/status/internal/data"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 )
 
@@ -19,7 +17,7 @@ import (
 // values are channels allowing check updates to be sent to the thread
 type State struct {
 	Region              string
-	DBClient            *mongo.Client
+	DBClient            data.Database
 	Log                 *zap.Logger
 	statusChecks        map[string]*checks.StatusCheck
 	statusThreads       map[string](chan *checks.StatusCheck)
@@ -29,18 +27,22 @@ type State struct {
 
 // NewState creates a new empty State struct
 func NewState() *State {
-	return &State{
+	state := &State{
 		statusChecks:        make(map[string]*checks.StatusCheck),
 		statusThreads:       make(map[string](chan *checks.StatusCheck)),
 		statusCheckResultCh: make(chan *checks.StatusCheckResult, 20000),
 	}
+
+	return state
 }
 
 // RunWorker runs the worker
 func (state *State) RunWorker() {
 	// Fetch checks and populate statusChecks map.
-	checkList := data.GetChecks(state.DBClient,
-		state.Region, state.Log)
+	checkList, err := state.DBClient.GetRegionChecks(state.Region)
+	if err != nil {
+		state.Log.Error("GetRegionChecks failed.", zap.String("error", err.Error()))
+	}
 	for i, check := range checkList.StatusChecks {
 		state.statusChecks[check.ID] = &checkList.StatusChecks[i]
 	}
@@ -92,8 +94,10 @@ func (state *State) UpdateChecks() {
 	*/
 
 	// Fetch checks and populate statusChecks map.
-	checkList := data.GetChecks(state.DBClient,
-		state.Region, state.Log)
+	checkList, err := state.DBClient.GetRegionChecks(state.Region)
+	if err != nil {
+		state.Log.Error("GetRegionChecks failed.", zap.String("error", err.Error()))
+	}
 
 	for i, update := range checkList.StatusChecks {
 		fmt.Printf("update: %+v\n", update)
@@ -124,7 +128,7 @@ func (state *State) UpdateChecks() {
 }
 
 func (state *State) sendStatusCheckResult() {
-	coll := state.DBClient.Database("status").Collection("check_results")
+	//coll := state.DBClient.Database("status").Collection("check_results")
 
 	sendTicker := time.NewTicker(30 * time.Second)
 	var results []interface{}
@@ -132,22 +136,19 @@ func (state *State) sendStatusCheckResult() {
 		select {
 		case <-sendTicker.C:
 			if len(results) > 1 {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				insertResult, err := coll.InsertMany(ctx, results)
+				insertResult, err := state.DBClient.SendResults(results)
 				if err != nil {
-					state.Log.Error("InsertMany Failed", zap.String("err", err.Error()))
+					state.Log.Error("SendResults Error", zap.String("err", err.Error()))
 					continue
 				}
-				state.Log.Info("InsertMany Successful", zap.Int("Document Count", len(insertResult.InsertedIDs)))
-				results = results[:0]
-				cancel()
+				state.Log.Info("SendResults Successful", zap.String("result", insertResult))
+				results = results[:0] // empty results
 			} else {
 				state.Log.Info("InsertMany - no results to insert")
 			}
 
 		case result := <-state.statusCheckResultCh:
 			results = append(results, result)
-
 		}
 	}
 }
