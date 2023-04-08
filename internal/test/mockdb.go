@@ -2,6 +2,7 @@
 package test
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/larntz/status/internal/checks"
@@ -9,7 +10,8 @@ import (
 
 // MockDB is a mock database used for testing
 type MockDB struct {
-	checks checks.Checks
+	checks       checks.Checks
+	statusResult []checks.StatusCheckResult
 }
 
 // Connect to the MockDB
@@ -17,8 +19,8 @@ func (db *MockDB) Connect() error {
 	// add some checks
 	db.checks.StatusChecks = append(db.checks.StatusChecks, checks.StatusCheck{
 		ID:          "test-check-1",
-		URL:         "https://test-check-1.local",
-		Interval:    300,
+		URL:         "https://gitea.chacarntz.net",
+		Interval:    10,
 		HTTPTimeout: 5,
 		Regions:     []string{"test-region-1", "test-region-2"},
 		Modified:    time.Now().UTC(),
@@ -27,28 +29,37 @@ func (db *MockDB) Connect() error {
 	})
 	db.checks.StatusChecks = append(db.checks.StatusChecks, checks.StatusCheck{
 		ID:          "test-check-2",
-		URL:         "https://test-check-2.local",
-		Interval:    900,
-		HTTPTimeout: 60,
+		URL:         "https://blue42.net",
+		Interval:    5,
+		HTTPTimeout: 15,
 		Regions:     []string{"test-region-1", "test-region-2"},
 		Modified:    time.Now().UTC(),
 		Serial:      0,
-		Active:      false,
+		Active:      true,
 	})
 	return nil
 }
 
 // GetRegionChecks gets mock region checks
-func (db MockDB) GetRegionChecks() (checks.Checks, error) {
-	return checks.Checks{}, nil
+func (db MockDB) GetRegionChecks(_ string) (checks.Checks, error) {
+	return db.checks, nil
 }
 
 // SendResults to the MockDB
-func (db MockDB) SendResults([]interface{}) (string, error) {
-	return "", nil
+func (db *MockDB) SendResults(results []interface{}) (string, error) {
+	added := 0
+	for _, result := range results {
+		r, ok := result.(checks.StatusCheckResult)
+		if ok {
+			db.statusResult = append(db.statusResult, r)
+			added++
+		}
+	}
+	summary := fmt.Sprintf("successfully inserted %d items", len(results))
+	return summary, nil
 }
 
-// Disconnect from the MockDB
+// Disconnect from the MockDB to satisfy interface
 func (db MockDB) Disconnect() {}
 
 // AddCheck to MockDB
