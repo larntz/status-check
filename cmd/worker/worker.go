@@ -128,8 +128,6 @@ func (state *State) UpdateChecks() {
 }
 
 func (state *State) sendStatusCheckResult() {
-	//coll := state.DBClient.Database("status").Collection("check_results")
-
 	sendTicker := time.NewTicker(30 * time.Second)
 	var results []interface{}
 	for {
