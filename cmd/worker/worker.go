@@ -82,6 +82,15 @@ func (state *State) UpdateChecks() {
 	//TODO Updates are not working properly
 	// updated a check url but it kept using the old url
 
+	/*
+
+			  - [x] Change active from true to false. Shuts down goroutine.
+			  - [x] Change active from false to true. Starts new goroutine.
+			  - [ ] Change interval changes check interval and ticker. Should this exit the goroutine and start a new one?
+		    - [ ] Change url.
+
+	*/
+
 	// Fetch checks and populate statusChecks map.
 	checkList := data.GetChecks(state.DBClient,
 		state.Region, state.Log)
