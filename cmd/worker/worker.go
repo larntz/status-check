@@ -46,7 +46,7 @@ func (state *State) RunWorker() {
 		state.statusChecks[check.ID] = &checkList.StatusChecks[i]
 	}
 
-	go state.sendStatusCheckResult()
+	go state.sendResultsWorker()
 	// Start checks
 	for _, chk := range state.statusChecks {
 		if chk.Active {
@@ -130,7 +130,7 @@ func (state *State) UpdateChecks() {
 	// update ssl checks
 }
 
-func (state *State) sendStatusCheckResult() {
+func (state *State) sendResultsWorker() {
 	sendTicker := time.NewTicker(30 * time.Second)
 	var results []interface{}
 	for {
