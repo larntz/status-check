@@ -2,7 +2,6 @@ package worker
 
 import (
 	"crypto/tls"
-	"fmt"
 	"math/rand"
 	"net/http"
 	"net/http/httptrace"
@@ -70,7 +69,7 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 				state.Log.Info("Check channel closed. Exiting.\n", zap.String("CheckID", check.ID))
 				return
 			}
-			fmt.Printf("in thread update: %+v\n", update)
+			state.Log.Debug("Check updated.", zap.Any("check", update))
 			check = update
 
 		case <-ticker.C:

@@ -2,7 +2,6 @@
 package worker
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 	"time"
@@ -85,12 +84,10 @@ func (state *State) UpdateChecks() {
 	// updated a check url but it kept using the old url
 
 	/*
-
-			  - [x] Change active from true to false. Shuts down goroutine.
-			  - [x] Change active from false to true. Starts new goroutine.
-			  - [ ] Change interval changes check interval and ticker. Should this exit the goroutine and start a new one?
-		    - [ ] Change url.
-
+	  - [x] Change active from true to false. Shuts down goroutine.
+	  - [x] Change active from false to true. Starts new goroutine.
+	  - [ ] Change interval; close existing goroutine and start another.
+	  - [ ] Change url; close existing goroutine and start another.
 	*/
 
 	// Fetch checks and populate statusChecks map.
@@ -100,26 +97,32 @@ func (state *State) UpdateChecks() {
 	}
 
 	for i, update := range checkList.StatusChecks {
-		fmt.Printf("update: %+v\n", update)
 		_, containsKey := state.statusChecks[update.ID]
-		if containsKey {
-			if state.statusChecks[update.ID].Active { // both checks active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			} else if !state.statusChecks[update.ID].Active { // original check is not active, update is active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
-				go state.statusCheck(state.statusThreads[update.ID])
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			} else if !update.Active { // original check is active, update is not active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			}
-		} else if !containsKey && update.Active { // add new active check and start goroutine
+		if containsKey && state.statusChecks[update.ID].Active {
+			// check url or interval change; if yes close thread and start another.
+			// better way to do that than a bunch of nested ifs?
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			return
+		}
+		if containsKey && !state.statusChecks[update.ID].Active { // original check is not active, update is active
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
 			state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
 			go state.statusCheck(state.statusThreads[update.ID])
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			return
+		}
+		if containsKey && !update.Active { // original check is active, update is not active
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			return
+		}
+		if !containsKey && update.Active { // add new active check and start goroutine
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
+			go state.statusCheck(state.statusThreads[update.ID])
+			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			return
 		}
 	}
 
