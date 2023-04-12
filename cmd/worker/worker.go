@@ -66,7 +66,14 @@ func (state *State) RunWorker() {
 		select {
 		case <-updateChecksTicker.C:
 			state.Log.Info("Update Status Checks Start")
-			state.UpdateChecks()
+			// TODO How to handle this so I can still run tests?
+			// ----------------
+			// newChecks := state.UpdateChecks()
+			// for _, c := range newChecks.StatusChecks {
+			// 	state.statusThreads[c.ID] = make(chan *checks.StatusCheck)
+			// 	go state.statusCheck(state.statusThreads[c.ID])
+			// 	state.statusThreads[c.ID] <- state.statusChecks[c.ID]
+			// }
 		case <-statusTicker.C:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
@@ -79,23 +86,28 @@ func (state *State) RunWorker() {
 }
 
 // UpdateChecks fetches checks from DB and updates threads and state.checks.StatusChecks
-func (state *State) UpdateChecks() {
+func (state *State) UpdateChecks() checks.Checks {
 	//TODO Updates are not working properly
 	// updated a check url but it kept using the old url
 
 	/*
-	  - [x] Change active from true to false. Shuts down goroutine.
-	  - [x] Change active from false to true. Starts new goroutine.
-	  - [ ] Change interval; close existing goroutine and start another.
-	  - [ ] Change url; close existing goroutine and start another.
+			  - [x] Change active from true to false. Shuts down goroutine.
+			  - [x] Change active from false to true. Starts new goroutine.
+		    - [ ] Add new check
+			  - [ ] Change interval; close existing goroutine and start another.
+			  - [ ] Change url; close existing goroutine and start another.
 	*/
 
+	newChecks := checks.Checks{}
 	// Fetch checks and populate statusChecks map.
 	checkList, err := state.DBClient.GetRegionChecks(state.Region)
 	if err != nil {
 		state.Log.Error("GetRegionChecks failed.", zap.String("error", err.Error()))
 	}
 
+	// TODO - see above near `updateChecksTicker`
+	// this needs work. I want to test to verify these are being done properly,
+	// but won't have channels or any of that setup when running these tests...
 	for i, update := range checkList.StatusChecks {
 		_, containsKey := state.statusChecks[update.ID]
 		if containsKey && state.statusChecks[update.ID].Active {
@@ -103,26 +115,24 @@ func (state *State) UpdateChecks() {
 			// better way to do that than a bunch of nested ifs?
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			return
 		}
 		if containsKey && !state.statusChecks[update.ID].Active { // original check is not active, update is active
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-			state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
-			go state.statusCheck(state.statusThreads[update.ID])
-			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			return
+			newChecks.StatusChecks = append(newChecks.StatusChecks, checkList.StatusChecks[i])
+			// state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
+			// go state.statusCheck(state.statusThreads[update.ID])
+			// state.statusThreads[update.ID] <- state.statusChecks[update.ID]
 		}
 		if containsKey && !update.Active { // original check is active, update is not active
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			return
 		}
 		if !containsKey && update.Active { // add new active check and start goroutine
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-			state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
-			go state.statusCheck(state.statusThreads[update.ID])
-			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			return
+			newChecks.StatusChecks = append(newChecks.StatusChecks, checkList.StatusChecks[i])
+			// state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
+			// go state.statusCheck(state.statusThreads[update.ID])
+			// state.statusThreads[update.ID] <- state.statusChecks[update.ID]
 		}
 	}
 
