@@ -136,6 +136,8 @@ func (state *State) UpdateChecks() checks.Checks {
 		}
 	}
 
+	return newChecks
+
 	// TODO
 	// update ssl checks
 }
