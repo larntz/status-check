@@ -24,13 +24,7 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 	}
 
 	reqTrace := NewRequestTrace()
-
-	result := checks.StatusCheckResult{
-		Metadata: checks.StatusCheckMetadata{
-			Region:  state.Region,
-			CheckID: check.ID,
-		},
-	}
+	var result checks.StatusCheckResult
 
 	// run the check [almost] immediately, then after the first
 	// run Reset ticker to Interval. Helps with testing also.
@@ -58,8 +52,15 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 			state.Log.Debug("Starting Check", zap.String("CheckID", check.ID), zap.Bool("Active", check.Active))
 			state.Log.Debug("Check Details", zap.Any("check", check))
 
+			result = checks.StatusCheckResult{
+				Metadata: checks.StatusCheckMetadata{
+					Region:  state.Region,
+					CheckID: check.ID,
+				},
+			}
+
 			timeout := time.Duration(check.HTTPTimeout) * time.Second
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancelCTX := context.WithTimeout(context.Background(), timeout)
 
 			// TODO every result is getting sent to the database twice for some reason.
 			resp, err := reqTrace.TraceRequest(ctx, state.HTTPTransport, req)
@@ -73,7 +74,7 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 				)
 				result.ResponseCode = 0
 				state.statusCheckResultCh <- &result
-				cancel()
+				cancelCTX()
 				continue
 			}
 
@@ -87,7 +88,7 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 
 			// done with resp
 			resp.Body.Close()
-			cancel()
+			cancelCTX()
 
 			state.statusCheckResultCh <- &result
 

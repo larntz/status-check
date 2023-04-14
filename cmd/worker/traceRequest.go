@@ -29,7 +29,10 @@ func (a *RequestTrace) TraceRequest(ctx context.Context,
 	a.start = time.Now().UTC()
 	req = req.WithContext(httptrace.WithClientTrace(ctx, a.Trace))
 	resp, err := client.RoundTrip(req)
-	return resp, err
+	if err != nil {
+		return &http.Response{}, err
+	}
+	return resp, nil
 }
 
 // Reset to zero values
@@ -40,16 +43,16 @@ func (a *RequestTrace) Reset() {
 func NewRequestTrace() *RequestTrace {
 	r := RequestTrace{}
 	r.Trace = &httptrace.ClientTrace{
-		DNSStart: func(dsi httptrace.DNSStartInfo) { r.dnsStart = time.Now() },
+		DNSStart: func(dsi httptrace.DNSStartInfo) { r.dnsStart = time.Now().UTC() },
 		DNSDone: func(d httptrace.DNSDoneInfo) {
 			r.DNSInfo = d
 			r.DNSDur = time.Since(r.dnsStart)
 		},
-		TLSHandshakeStart: func() { r.tlsHandshakeStart = time.Now() },
+		TLSHandshakeStart: func() { r.tlsHandshakeStart = time.Now().UTC() },
 		TLSHandshakeDone: func(c tls.ConnectionState, err error) {
 			r.TLSHandshakeDur = time.Since(r.tlsHandshakeStart)
 		},
-		ConnectStart: func(network, addr string) { r.connStart = time.Now() },
+		ConnectStart: func(network, addr string) { r.connStart = time.Now().UTC() },
 		ConnectDone: func(network, addr string, err error) {
 			r.ConnDur = time.Since(r.connStart)
 		},

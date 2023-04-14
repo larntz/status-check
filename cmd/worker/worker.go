@@ -39,7 +39,7 @@ func NewState() *State {
 
 // RunWorker runs the worker
 func (state *State) RunWorker() {
-	go state.sendResultsWorker(30)
+	go state.sendResultsWorker(30000) // 30 seconds in ms
 
 	firstRun := true
 	updateChecksTicker := time.NewTicker(1 * time.Nanosecond)
@@ -55,9 +55,9 @@ func (state *State) RunWorker() {
 			state.Log.Info("Update Status Checks Start")
 			newChecks := state.UpdateChecks()
 			for _, c := range newChecks.StatusChecks {
-				state.statusThreads[c.ID] = make(chan *checks.StatusCheck, 1)
+				// state.statusThreads[c.ID] = make(chan *checks.StatusCheck, 1)
+				// state.statusThreads[c.ID] <- state.statusChecks[c.ID]
 				go state.statusCheck(state.statusThreads[c.ID], rand.Intn(60))
-				state.statusThreads[c.ID] <- state.statusChecks[c.ID]
 			}
 		case <-statusTicker.C:
 			var mem runtime.MemStats
@@ -78,7 +78,7 @@ func (state *State) UpdateChecks() checks.Checks {
 	/*
 			  - [x] Change active from true to false. Shuts down goroutine.
 			  - [x] Change active from false to true. Starts new goroutine.
-		    - [ ] Add new check
+		    - [x] Add new check
 			  - [ ] Change interval; close existing goroutine and start another.
 			  - [ ] Change url; close existing goroutine and start another.
 	*/
@@ -90,9 +90,6 @@ func (state *State) UpdateChecks() checks.Checks {
 		state.Log.Error("GetRegionChecks failed.", zap.String("error", err.Error()))
 	}
 
-	// TODO - see above near `updateChecksTicker`
-	// this needs work. I want to test to verify these are being done properly,
-	// but won't have channels or any of that setup when running these tests...
 	for i, update := range checkList.StatusChecks {
 		_, containsKey := state.statusChecks[update.ID]
 		if containsKey && state.statusChecks[update.ID].Active {
@@ -100,17 +97,19 @@ func (state *State) UpdateChecks() checks.Checks {
 			// better way to do that than a bunch of nested ifs?
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
 		}
 		if containsKey && !state.statusChecks[update.ID].Active { // original check is not active, update is active
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
 			newChecks.StatusChecks = append(newChecks.StatusChecks, checkList.StatusChecks[i])
-			state.statusThreads[update.ID] = make(chan *checks.StatusCheck, 1)
-			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			//state.statusThreads[update.ID] = make(chan *checks.StatusCheck, 1)
+			//state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
 		}
 		if containsKey && !update.Active { // original check is active, update is not active
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-			// TODO verify this doesn't block
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
 		}
 		if !containsKey && update.Active { // add new active check and append to newChecks
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
@@ -126,13 +125,13 @@ func (state *State) UpdateChecks() checks.Checks {
 	// update ssl checks
 }
 
-func (state *State) sendResultsWorker(intervalSeconds float32) {
-	sendTicker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+func (state *State) sendResultsWorker(intervalMS int) {
+	sendTicker := time.NewTicker(time.Duration(intervalMS) * time.Millisecond)
 	var results []interface{}
 	for {
 		select {
 		case <-sendTicker.C:
-			if len(results) > 1 {
+			if len(results) > 0 {
 				insertResult, err := state.DBClient.SendResults(results)
 				if err != nil {
 					state.Log.Error("SendResults Error", zap.String("err", err.Error()))
@@ -145,7 +144,7 @@ func (state *State) sendResultsWorker(intervalSeconds float32) {
 			}
 
 		case result := <-state.statusCheckResultCh:
-			results = append(results, result)
+			results = append(results, *result)
 		}
 	}
 }

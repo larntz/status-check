@@ -2,6 +2,7 @@
 package test
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/larntz/status/internal/checks"
@@ -26,14 +27,16 @@ func (db MockDB) GetRegionChecks(_ string) (checks.Checks, error) {
 // SendResults to the MockDB
 func (db *MockDB) SendResults(results []interface{}) (string, error) {
 	added := 0
-	for _, result := range results {
-		r, ok := result.(checks.StatusCheckResult)
+	for i := range results {
+		r, ok := results[i].(checks.StatusCheckResult)
 		if ok {
 			db.StatusResult = append(db.StatusResult, r)
 			added++
+		} else {
+			return "", errors.New("SendResults failed")
 		}
 	}
-	summary := fmt.Sprintf("successfully inserted %d items", len(results))
+	summary := fmt.Sprintf("successfully inserted %d items", added)
 	return summary, nil
 }
 

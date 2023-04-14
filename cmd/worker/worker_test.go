@@ -101,14 +101,75 @@ func TestUpdateChecks(t *testing.T) {
 		mockDB.AddCheck(check)
 	}
 
+	t.Log("Testing UpdateChecks on emtpy state.")
 	newChecks := workerState.UpdateChecks()
+	if len(workerState.statusChecks) != 2 {
+		t.Fatal("statusChecks != 2")
+	}
 
 	if !reflect.DeepEqual(mockDB.Checks.StatusChecks, newChecks.StatusChecks) {
 		t.Fatalf("mockDB checks != workerState. Got: %+v, Want: %+v", newChecks.StatusChecks, mockDB.Checks.StatusChecks)
 	}
 
-	if len(workerState.statusChecks) != 2 {
-		t.Fatal("statusChecks != 2")
+	// next test
+	/// emtpy channel buffers
+	for _, c := range mockDB.Checks.StatusChecks {
+		if len(workerState.statusThreads[c.ID]) > 0 {
+			<-workerState.statusThreads[c.ID]
+		}
+	}
+	t.Log("Testing UpdateChecks with active -> inactive")
+	mockDB.Checks.StatusChecks[0].Active = false
+	_ = workerState.UpdateChecks()
+	for i, c := range mockDB.Checks.StatusChecks {
+		v, ok := workerState.statusChecks[c.ID]
+		if !ok {
+			t.Fatalf("mockDB checks != workerState. \nGot: %+v, \nWant: %+v\n", v, mockDB.Checks.StatusChecks[i])
+		}
+	}
+
+	// next test
+	/// emtpy channel buffers
+	for _, c := range mockDB.Checks.StatusChecks {
+		if len(workerState.statusThreads[c.ID]) > 0 {
+			<-workerState.statusThreads[c.ID]
+		}
+	}
+	t.Log("Testing UpdateChecks with inactive -> active")
+	mockDB.Checks.StatusChecks[0].Active = true
+	_ = workerState.UpdateChecks()
+	for i, c := range mockDB.Checks.StatusChecks {
+		v, ok := workerState.statusChecks[c.ID]
+		if !ok {
+			t.Fatalf("mockDB checks != workerState. \nGot: %+v, \nWant: %+v\n", v, mockDB.Checks.StatusChecks[i])
+		}
+	}
+
+	// next test
+	/// emtpy channel buffers
+	for _, c := range mockDB.Checks.StatusChecks {
+		if len(workerState.statusThreads[c.ID]) > 0 {
+			<-workerState.statusThreads[c.ID]
+		}
+	}
+	t.Log("Testing UpdateChecks by adding a new check")
+	mockDB.Checks.StatusChecks = append(mockDB.Checks.StatusChecks,
+		checks.StatusCheck{
+			ID:          "test-check-3",
+			URL:         "https://ha.chacarntz.net",
+			Interval:    1,
+			HTTPTimeout: 5,
+			Regions:     []string{"test-region-1"},
+			Modified:    time.Now().UTC(),
+			Serial:      0,
+			Active:      true,
+		})
+	_ = workerState.UpdateChecks()
+	for i, c := range mockDB.Checks.StatusChecks {
+		v, ok := workerState.statusChecks[c.ID]
+		if !ok {
+			t.Fatalf("mockDB checks != workerState. \nGot: %+v, \nWant: %+v\n", v, mockDB.Checks.StatusChecks[i])
+		}
 	}
 }
 
@@ -134,9 +195,10 @@ func TestSendResultsWorker(t *testing.T) {
 	}
 
 	workerState.statusCheckResultCh <- sent
-	received := <-workerState.statusCheckResultCh
+	time.Sleep(10 * time.Millisecond)
+	rCount := len(mockDB.StatusResult)
 
-	if !reflect.DeepEqual(sent, received) {
-		t.Fatalf("TestSendResultsWorker failed. Got: %+v, Want: %+v", received, sent)
+	if rCount != 1 {
+		t.Fatalf("Check results. Want: 1 Got: %d", rCount)
 	}
 }
