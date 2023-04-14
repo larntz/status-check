@@ -7,17 +7,17 @@ import (
 	"time"
 
 	"github.com/larntz/status/internal/checks"
-	"go.mongodb.org/mongo-driver/mongo"
+	"github.com/larntz/status/internal/data"
 	"go.uber.org/zap"
 )
 
-// State type holds our application state
+// State type holds our controller state
 type State struct {
 	Checks          checks.Checks
 	ChecksMutex     sync.Mutex
 	ChecksTimestamp time.Time
 	Ctx             context.Context
-	DbClient        *mongo.Client // is this abstracted enough?
+	DbClient        *data.Database
 	Log             *zap.Logger
 	Region          string
 }

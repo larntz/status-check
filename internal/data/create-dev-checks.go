@@ -64,13 +64,14 @@ func CreateDevChecks(filename string, log *zap.Logger) {
 	for i, domain := range domains {
 		randI := rand.Intn(3)
 		statusChecks = append(statusChecks, checks.StatusCheck{
-			ID:       fmt.Sprintf("dev-check-%d", i),
-			URL:      domain[1],
-			Interval: interval[randI],
-			Regions:  []string{"us-dev-1", "us-dev-2"},
-			Modified: time.Now().UTC(),
-			Serial:   1,
-			Active:   true,
+			ID:          fmt.Sprintf("dev-check-%d", i),
+			URL:         domain[1],
+			Interval:    interval[randI],
+			HTTPTimeout: (randI + 1) * 5,
+			Regions:     []string{"us-dev-1", "us-dev-2"},
+			Modified:    time.Now().UTC(),
+			Serial:      1,
+			Active:      true,
 		})
 	}
 

@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	"go.uber.org/zap"
@@ -12,7 +13,14 @@ import (
 )
 
 func main() {
-	log, err := zap.NewProduction()
+	env, set := os.LookupEnv("ENVIRONMENT")
+	var log *zap.Logger
+	var err error
+	if !set || env == "development" {
+		log, err = zap.NewDevelopment()
+	} else {
+		log, err = zap.NewProduction()
+	}
 	if err != nil {
 		fmt.Println("Unable to setup logger. Exiting...")
 		os.Exit(1)
@@ -43,6 +51,7 @@ func main() {
 			log.Fatal("WORKER_REGION env var not set. Exiting.")
 		}
 		state.Log = log
+		state.HTTPTransport = &http.Transport{}
 		state.DBClient = &data.MongoDB{}
 		if err := state.DBClient.Connect(); err != nil {
 			log.Fatal("Connect() to database failed.", zap.String("error", err.Error()))

@@ -1,66 +1,142 @@
 package worker
 
 import (
-	"fmt"
-	"os"
+	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/larntz/status/internal/checks"
 	"github.com/larntz/status/internal/test"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestUpdatechecks(t *testing.T) {
-	region := "us-test-1"
-	workerState := NewState()
-	workerState.wg.Add(1)
-	workerState.Region = region
-	mockDB := test.MockDB{}
-	workerState.DBClient = &mockDB
-
-	log, err := zap.NewProduction()
-	if err != nil {
-		fmt.Println("Unable to setup logger. Exiting...")
-		os.Exit(1)
-	}
-	defer log.Sync()
-
-	if len(workerState.statusChecks) != 0 {
-		t.Fatalf("Wanted 0 checks, got %d", len(workerState.statusChecks))
-	}
-
-	// add two checks
-	chk1, _ := mockDB.GetRegionChecks(region)
-	fmt.Printf("mockDB has %d checks\n", len(chk1.StatusChecks))
-	mockDB.AddCheck(checks.StatusCheck{
+var testChecks = []checks.StatusCheck{
+	{
 		ID:          "test-check-1",
 		URL:         "https://gitea.chacarntz.net",
-		Interval:    10,
+		Interval:    1,
 		HTTPTimeout: 5,
 		Regions:     []string{"test-region-1", "test-region-2"},
 		Modified:    time.Now().UTC(),
 		Serial:      0,
 		Active:      true,
-	})
-	mockDB.AddCheck(checks.StatusCheck{
+	},
+	{
 		ID:          "test-check-2",
 		URL:         "https://blue42.net",
-		Interval:    5,
+		Interval:    1,
 		HTTPTimeout: 15,
 		Regions:     []string{"test-region-1", "test-region-2"},
 		Modified:    time.Now().UTC(),
 		Serial:      0,
 		Active:      true,
-	})
-	chk2, _ := mockDB.GetRegionChecks(region)
-	fmt.Printf("mockDB has %d checks\n", len(chk2.StatusChecks))
+	},
+}
 
-	fmt.Printf("workerState has %d checks\n", len(workerState.statusChecks))
-	workerState.UpdateChecks()
-	fmt.Printf("workerState has %d checks\n", len(workerState.statusChecks))
+// setupState returns a State struct without a DBClient to be used in testing
+func setupState() *State {
+	state := NewState()
+	state.Region = "us-test-1"
+	log, _ := observer.New(zap.DebugLevel)
+	state.Log = zap.New(log)
+	return state
+}
+
+func TestStatusChecks(t *testing.T) {
+	workerState := setupState()
+	mockDB := test.MockDB{}
+	workerState.DBClient = &mockDB
+
+	trans := test.HTTPTransport{
+		Response: &http.Response{
+			StatusCode: 200,
+			Status:     "test code 200",
+		},
+	}
+	trans.Response.Body = &test.Body{}
+	workerState.HTTPTransport = &trans
+
+	ch := make(chan *checks.StatusCheck)
+	workerState.wg.Add(1)
+	go workerState.statusCheck(ch, 0)
+	ch <- &testChecks[0]
+
+	result := <-workerState.statusCheckResultCh
+
+	// response status code
+	if trans.Response.StatusCode != result.ResponseCode {
+		t.Fatalf("response code fail. Want: %d. Got: %d", trans.Response.StatusCode,
+			result.ResponseCode)
+	}
+	// response status
+	if trans.Response.Status != result.ResponseInfo {
+		t.Fatalf("response code fail. Want: %s. Got: %s", trans.Response.Status,
+			result.ResponseInfo)
+	}
+
+	/* TODO
+	- test timings
+	- test check changes
+	  * url
+	  * interval
+	  *
+	*/
+
+}
+
+func TestUpdateChecks(t *testing.T) {
+	workerState := setupState()
+	defer workerState.Log.Sync()
+	mockDB := test.MockDB{}
+	workerState.DBClient = &mockDB
+
+	if len(workerState.statusChecks) != 0 {
+		t.Fatalf("Wanted 0 checks, got %d", len(workerState.statusChecks))
+	}
+
+	// add testChecks
+	for _, check := range testChecks {
+		mockDB.AddCheck(check)
+	}
+
+	newChecks := workerState.UpdateChecks()
+
+	if !reflect.DeepEqual(mockDB.Checks.StatusChecks, newChecks.StatusChecks) {
+		t.Fatalf("mockDB checks != workerState. Got: %+v, Want: %+v", newChecks.StatusChecks, mockDB.Checks.StatusChecks)
+	}
 
 	if len(workerState.statusChecks) != 2 {
 		t.Fatal("statusChecks != 2")
+	}
+}
+
+func TestSendResultsWorker(t *testing.T) {
+	workerState := setupState()
+	defer workerState.Log.Sync()
+	mockDB := test.MockDB{}
+	workerState.DBClient = &mockDB
+
+	go workerState.sendResultsWorker(1)
+
+	timestamp := time.Now().UTC()
+	sent := &checks.StatusCheckResult{
+		Metadata:      checks.StatusCheckMetadata{Region: "us-test-1", CheckID: "test-check-1"},
+		Timestamp:     timestamp,
+		ResponseID:    "test response id",
+		ResponseCode:  200,
+		TTFB:          5,
+		ConnectTiming: 10,
+		TLSTiming:     15,
+		DNSTiming:     20,
+		ResponseInfo:  "test response",
+	}
+
+	workerState.statusCheckResultCh <- sent
+	received := <-workerState.statusCheckResultCh
+
+	if !reflect.DeepEqual(sent, received) {
+		t.Fatalf("TestSendResultsWorker failed. Got: %+v, Want: %+v", received, sent)
 	}
 }
