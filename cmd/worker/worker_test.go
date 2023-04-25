@@ -196,7 +196,9 @@ func TestSendResultsWorker(t *testing.T) {
 
 	workerState.statusCheckResultCh <- sent
 	time.Sleep(10 * time.Millisecond)
+	mockDB.StatusResultMutex.Lock()
 	rCount := len(mockDB.StatusResult)
+	mockDB.StatusResultMutex.Unlock()
 
 	if rCount != 1 {
 		t.Fatalf("Check results. Want: 1 Got: %d", rCount)

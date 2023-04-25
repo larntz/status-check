@@ -24,7 +24,6 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 	}
 
 	reqTrace := NewRequestTrace()
-	var result checks.StatusCheckResult
 
 	// run the check [almost] immediately, then after the first
 	// run Reset ticker to Interval. Helps with testing also.
@@ -52,7 +51,7 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 			state.Log.Debug("Starting Check", zap.String("CheckID", check.ID), zap.Bool("Active", check.Active))
 			state.Log.Debug("Check Details", zap.Any("check", check))
 
-			result = checks.StatusCheckResult{
+			result := checks.StatusCheckResult{
 				Metadata: checks.StatusCheckMetadata{
 					Region:  state.Region,
 					CheckID: check.ID,

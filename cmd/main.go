@@ -16,10 +16,10 @@ func main() {
 	env, set := os.LookupEnv("ENVIRONMENT")
 	var log *zap.Logger
 	var err error
-	if !set || env == "development" {
-		log, err = zap.NewDevelopment()
-	} else {
+	if !set || env == "production" {
 		log, err = zap.NewProduction()
+	} else {
+		log, err = zap.NewDevelopment()
 	}
 	if err != nil {
 		fmt.Println("Unable to setup logger. Exiting...")

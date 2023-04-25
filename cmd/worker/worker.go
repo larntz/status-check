@@ -55,8 +55,6 @@ func (state *State) RunWorker() {
 			state.Log.Info("Update Status Checks Start")
 			newChecks := state.UpdateChecks()
 			for _, c := range newChecks.StatusChecks {
-				// state.statusThreads[c.ID] = make(chan *checks.StatusCheck, 1)
-				// state.statusThreads[c.ID] <- state.statusChecks[c.ID]
 				go state.statusCheck(state.statusThreads[c.ID], rand.Intn(60))
 			}
 		case <-statusTicker.C:
