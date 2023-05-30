@@ -1,23 +1,19 @@
 package worker
 
 import (
-	"crypto/tls"
-	"fmt"
-	"math/rand"
+	"context"
 	"net/http"
-	"net/http/httptrace"
 	"time"
 
 	"github.com/larntz/status/internal/checks"
 	"go.uber.org/zap"
 )
 
-func (state *State) statusCheck(ch chan *checks.StatusCheck) {
+func (state *State) statusCheck(ch chan *checks.StatusCheck, delay int) {
 	defer state.wg.Done()
 	check := <-ch
 
 	// delay to distribute checks over time
-	delay := rand.Intn(check.Interval)
 	state.Log.Debug("Check Delay", zap.String("CheckID", check.ID), zap.Int("Seconds", delay))
 	time.Sleep(time.Duration(delay) * time.Second)
 
@@ -27,38 +23,12 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 		state.Log.Error("failed to create NewRequest", zap.String("err", err.Error()))
 	}
 
-	var start, dns, tlsHandshake, connect time.Time
-	var ttfb, dnsTime, tlsTime, connectTime time.Duration
+	reqTrace := NewRequestTrace()
 
-	trace := &httptrace.ClientTrace{
-		DNSStart: func(dsi httptrace.DNSStartInfo) { dns = time.Now() },
-		DNSDone: func(ddi httptrace.DNSDoneInfo) {
-			dnsTime = time.Since(dns)
-		},
-
-		TLSHandshakeStart: func() { tlsHandshake = time.Now() },
-		TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
-			tlsTime = time.Since(tlsHandshake)
-		},
-
-		ConnectStart: func(network, addr string) { connect = time.Now() },
-		ConnectDone: func(network, addr string, err error) {
-			connectTime = time.Since(connect)
-		},
-
-		GotFirstResponseByte: func() {
-			ttfb = time.Since(start)
-		},
-	}
-
-	result := checks.StatusCheckResult{
-		Metadata: checks.StatusCheckMetadata{
-			Region:  state.Region,
-			CheckID: check.ID,
-		},
-	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
-	ticker := time.NewTicker(time.Duration(check.Interval) * time.Second)
+	// run the check [almost] immediately, then after the first
+	// run Reset ticker to Interval. Helps with testing also.
+	ticker := time.NewTicker(1 * time.Nanosecond)
+	firstRun := true
 
 	for {
 		select {
@@ -70,14 +40,29 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 				state.Log.Info("Check channel closed. Exiting.\n", zap.String("CheckID", check.ID))
 				return
 			}
-			fmt.Printf("in thread update: %+v\n", update)
+			state.Log.Debug("Check updated.", zap.Any("check", update))
 			check = update
 
 		case <-ticker.C:
+			if firstRun {
+				firstRun = false
+				ticker.Reset(time.Duration(check.Interval) * time.Second)
+			}
 			state.Log.Debug("Starting Check", zap.String("CheckID", check.ID), zap.Bool("Active", check.Active))
-			http.DefaultClient.Timeout = time.Duration(check.HTTPTimeout) * time.Second
-			start = time.Now()
-			resp, err := http.DefaultTransport.RoundTrip(req)
+			state.Log.Debug("Check Details", zap.Any("check", check))
+
+			result := checks.StatusCheckResult{
+				Metadata: checks.StatusCheckMetadata{
+					Region:  state.Region,
+					CheckID: check.ID,
+				},
+			}
+
+			timeout := time.Duration(check.HTTPTimeout) * time.Second
+			ctx, cancelCTX := context.WithTimeout(context.Background(), timeout)
+
+			// TODO every result is getting sent to the database twice for some reason.
+			resp, err := reqTrace.TraceRequest(ctx, state.HTTPTransport, req)
 			if err != nil {
 				result.ResponseInfo = err.Error()
 				state.Log.Error("httpClient.Get() error",
@@ -88,19 +73,21 @@ func (state *State) statusCheck(ch chan *checks.StatusCheck) {
 				)
 				result.ResponseCode = 0
 				state.statusCheckResultCh <- &result
+				cancelCTX()
 				continue
 			}
 
-			result.Timestamp = start.UTC()
+			result.Timestamp = reqTrace.start
 			result.ResponseCode = resp.StatusCode
 			result.ResponseInfo = resp.Status
-			result.TTFB = ttfb.Milliseconds()
-			result.DNSTiming = dnsTime.Milliseconds()
-			result.TLSTiming = tlsTime.Milliseconds()
-			result.ConnectTiming = connectTime.Milliseconds()
+			result.TTFB = reqTrace.TTFB.Milliseconds()
+			result.DNSTiming = reqTrace.DNSDur.Milliseconds()
+			result.TLSTiming = reqTrace.TLSHandshakeDur.Milliseconds()
+			result.ConnectTiming = reqTrace.ConnDur.Milliseconds()
 
 			// done with resp
 			resp.Body.Close()
+			cancelCTX()
 
 			state.statusCheckResultCh <- &result
 

@@ -2,7 +2,8 @@
 package worker
 
 import (
-	"fmt"
+	"math/rand"
+	"net/http"
 	"runtime"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 type State struct {
 	Region              string
 	DBClient            data.Database
+	HTTPTransport       http.RoundTripper
 	Log                 *zap.Logger
 	statusChecks        map[string]*checks.StatusCheck
 	statusThreads       map[string](chan *checks.StatusCheck)
@@ -32,42 +34,29 @@ func NewState() *State {
 		statusThreads:       make(map[string](chan *checks.StatusCheck)),
 		statusCheckResultCh: make(chan *checks.StatusCheckResult, 20000),
 	}
-
 	return state
 }
 
 // RunWorker runs the worker
 func (state *State) RunWorker() {
-	// Fetch checks and populate statusChecks map.
-	checkList, err := state.DBClient.GetRegionChecks(state.Region)
-	if err != nil {
-		state.Log.Error("GetRegionChecks failed.", zap.String("error", err.Error()))
-	}
-	for i, check := range checkList.StatusChecks {
-		state.statusChecks[check.ID] = &checkList.StatusChecks[i]
-	}
+	go state.sendResultsWorker(30000) // 30 seconds in ms
 
-	go state.sendStatusCheckResult()
-	// Start checks
-	for _, chk := range state.statusChecks {
-		if chk.Active {
-			state.Log.Info("Adding StatusCheck", zap.String("CheckID", chk.ID), zap.Int("Interval", chk.Interval))
-			ch := make(chan *checks.StatusCheck)
-			state.statusThreads[chk.ID] = ch
-			state.wg.Add(1)
-			go state.statusCheck(state.statusThreads[chk.ID])
-			state.statusThreads[chk.ID] <- state.statusChecks[chk.ID]
-		}
-	}
-
-	updateChecksTicker := time.NewTicker(time.Duration(3) * time.Minute)
+	firstRun := true
+	updateChecksTicker := time.NewTicker(1 * time.Nanosecond)
 	statusTicker := time.NewTicker(time.Duration(1) * time.Minute)
 
 	for {
 		select {
 		case <-updateChecksTicker.C:
+			if firstRun {
+				updateChecksTicker.Reset(time.Duration(3) * time.Minute)
+				firstRun = false
+			}
 			state.Log.Info("Update Status Checks Start")
-			state.UpdateChecks()
+			newChecks := state.UpdateChecks()
+			for _, c := range newChecks.StatusChecks {
+				go state.statusCheck(state.statusThreads[c.ID], rand.Intn(60))
+			}
 		case <-statusTicker.C:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
@@ -80,19 +69,19 @@ func (state *State) RunWorker() {
 }
 
 // UpdateChecks fetches checks from DB and updates threads and state.checks.StatusChecks
-func (state *State) UpdateChecks() {
+func (state *State) UpdateChecks() checks.Checks {
 	//TODO Updates are not working properly
 	// updated a check url but it kept using the old url
 
 	/*
-
 			  - [x] Change active from true to false. Shuts down goroutine.
 			  - [x] Change active from false to true. Starts new goroutine.
-			  - [ ] Change interval changes check interval and ticker. Should this exit the goroutine and start a new one?
-		    - [ ] Change url.
-
+		    - [x] Add new check
+			  - [ ] Change interval; close existing goroutine and start another.
+			  - [ ] Change url; close existing goroutine and start another.
 	*/
 
+	newChecks := checks.Checks{}
 	// Fetch checks and populate statusChecks map.
 	checkList, err := state.DBClient.GetRegionChecks(state.Region)
 	if err != nil {
@@ -100,40 +89,47 @@ func (state *State) UpdateChecks() {
 	}
 
 	for i, update := range checkList.StatusChecks {
-		fmt.Printf("update: %+v\n", update)
 		_, containsKey := state.statusChecks[update.ID]
-		if containsKey {
-			if state.statusChecks[update.ID].Active { // both checks active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			} else if !state.statusChecks[update.ID].Active { // original check is not active, update is active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
-				go state.statusCheck(state.statusThreads[update.ID])
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			} else if !update.Active { // original check is active, update is not active
-				state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-				state.statusThreads[update.ID] <- state.statusChecks[update.ID]
-			}
-		} else if !containsKey && update.Active { // add new active check and start goroutine
+		if containsKey && state.statusChecks[update.ID].Active {
+			// check url or interval change; if yes close thread and start another.
+			// better way to do that than a bunch of nested ifs?
 			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
-			state.statusThreads[update.ID] = make(chan *checks.StatusCheck)
-			go state.statusCheck(state.statusThreads[update.ID])
+			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
+		}
+		if containsKey && !state.statusChecks[update.ID].Active { // original check is not active, update is active
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			newChecks.StatusChecks = append(newChecks.StatusChecks, checkList.StatusChecks[i])
+			//state.statusThreads[update.ID] = make(chan *checks.StatusCheck, 1)
+			//state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
+		}
+		if containsKey && !update.Active { // original check is active, update is not active
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
+			continue
+		}
+		if !containsKey && update.Active { // add new active check and append to newChecks
+			state.statusChecks[update.ID] = &checkList.StatusChecks[i]
+			newChecks.StatusChecks = append(newChecks.StatusChecks, checkList.StatusChecks[i])
+			state.statusThreads[update.ID] = make(chan *checks.StatusCheck, 1)
 			state.statusThreads[update.ID] <- state.statusChecks[update.ID]
 		}
 	}
+
+	return newChecks
 
 	// TODO
 	// update ssl checks
 }
 
-func (state *State) sendStatusCheckResult() {
-	sendTicker := time.NewTicker(30 * time.Second)
+func (state *State) sendResultsWorker(intervalMS int) {
+	sendTicker := time.NewTicker(time.Duration(intervalMS) * time.Millisecond)
 	var results []interface{}
 	for {
 		select {
 		case <-sendTicker.C:
-			if len(results) > 1 {
+			if len(results) > 0 {
 				insertResult, err := state.DBClient.SendResults(results)
 				if err != nil {
 					state.Log.Error("SendResults Error", zap.String("err", err.Error()))
@@ -146,7 +142,7 @@ func (state *State) sendStatusCheckResult() {
 			}
 
 		case result := <-state.statusCheckResultCh:
-			results = append(results, result)
+			results = append(results, *result)
 		}
 	}
 }
