@@ -135,7 +135,7 @@ func (state *State) sendResultsWorker(intervalMS int) {
 					state.Log.Error("send_results", zap.String("error", err.Error()))
 					continue
 				}
-				state.Log.Info("send_results", zap.String("inserted_items", insertResult))
+				state.Log.Info("send_results", zap.Int("inserted_items", insertResult))
 				results = results[:0] // empty results
 			} else {
 				state.Log.Info("InsertMany - no results to insert")

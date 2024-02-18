@@ -8,6 +8,6 @@ import (
 type Database interface {
 	Connect() error
 	GetRegionChecks(region string) (checks.Checks, error)
-	SendResults(results []interface{}) (string, error)
+	SendResults(results []interface{}) (int, error)
 	Disconnect()
 }
