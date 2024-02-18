@@ -2,12 +2,10 @@ FROM golang:1.21 AS builder
 
 WORKDIR /app
 COPY . .
-RUN ls -R
 RUN go mod download
-RUN make build
+RUN CGO_ENABLED=0 go build -o /status ./cmd/main.go
+RUN pwd && ls -R
 
 FROM scratch
-
-COPY --from=builder /app/status /bin/status
-
-ENTRYPOINT ["/bin/status" "worker"]
+COPY --from=builder /status /status
+ENTRYPOINT ["/status","worker"]
