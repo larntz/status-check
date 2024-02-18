@@ -132,10 +132,10 @@ func (state *State) sendResultsWorker(intervalMS int) {
 			if len(results) > 0 {
 				insertResult, err := state.DBClient.SendResults(results)
 				if err != nil {
-					state.Log.Error("SendResults Error", zap.String("err", err.Error()))
+					state.Log.Error("SendResults", zap.String("error", err.Error()))
 					continue
 				}
-				state.Log.Info("SendResults", zap.String("result", insertResult))
+				state.Log.Info("SendResults", zap.String("message", insertResult))
 				results = results[:0] // empty results
 			} else {
 				state.Log.Info("InsertMany - no results to insert")
