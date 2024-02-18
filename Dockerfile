@@ -7,5 +7,6 @@ RUN CGO_ENABLED=0 go build -o /status ./cmd/main.go
 RUN pwd && ls -R
 
 FROM scratch
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /status /status
 ENTRYPOINT ["/status","worker"]
