@@ -60,7 +60,7 @@ func (state *State) RunWorker() {
 		case <-statusTicker.C:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
-			state.Log.Info("status_ticker", zap.Int("num_goroutines", runtime.NumGoroutine()), zap.Uint64("HeapAlloc", mem.HeapAlloc))
+			state.Log.Info("status_ticker", zap.Int("num_goroutines", runtime.NumGoroutine()), zap.Uint64("heap_alloc", mem.HeapAlloc))
 		}
 	}
 
