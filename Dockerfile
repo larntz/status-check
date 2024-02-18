@@ -10,4 +10,4 @@ FROM scratch
 
 COPY --from=builder /app/status /bin/status
 
-ENTRYPOINT ["/bin/status"]
+ENTRYPOINT ["/bin/status" "worker"]
