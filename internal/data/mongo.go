@@ -92,7 +92,7 @@ func (db MongoDB) SendResults(results []interface{}) (string, error) {
 		return "", err
 	}
 
-	summary := fmt.Sprintf("successfully inserted %d items", len(result.InsertedIDs))
+	summary := fmt.Sprintf("inserted %d items", len(result.InsertedIDs))
 	return summary, nil
 }
 
