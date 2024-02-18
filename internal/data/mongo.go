@@ -4,7 +4,6 @@ package data
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"time"
 
@@ -85,15 +84,14 @@ func (db MongoDB) GetRegionChecks(region string) (checks.Checks, error) {
 }
 
 // SendResults to Mongo
-func (db MongoDB) SendResults(results []interface{}) (string, error) {
+func (db MongoDB) SendResults(results []interface{}) (int, error) {
 	coll := db.Client.Database("status").Collection("check_results")
 	result, err := coll.InsertMany(context.TODO(), results)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	summary := fmt.Sprintf("inserted %d items", len(result.InsertedIDs))
-	return summary, nil
+	return len(result.InsertedIDs), nil
 }
 
 // Disconnect Mongo

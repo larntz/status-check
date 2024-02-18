@@ -60,7 +60,7 @@ func (state *State) RunWorker() {
 		case <-statusTicker.C:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
-			state.Log.Info("Status Ticker", zap.Int("num_goroutines", runtime.NumGoroutine()), zap.Uint64("HeapAlloc", mem.HeapAlloc))
+			state.Log.Info("status_ticker", zap.Int("num_goroutines", runtime.NumGoroutine()), zap.Uint64("HeapAlloc", mem.HeapAlloc))
 		}
 	}
 
@@ -132,10 +132,10 @@ func (state *State) sendResultsWorker(intervalMS int) {
 			if len(results) > 0 {
 				insertResult, err := state.DBClient.SendResults(results)
 				if err != nil {
-					state.Log.Error("SendResults", zap.String("error", err.Error()))
+					state.Log.Error("send_results", zap.String("error", err.Error()))
 					continue
 				}
-				state.Log.Info("SendResults", zap.String("message", insertResult))
+				state.Log.Info("send_results", zap.String("inserted_items", insertResult))
 				results = results[:0] // empty results
 			} else {
 				state.Log.Info("InsertMany - no results to insert")
